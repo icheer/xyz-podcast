@@ -53,6 +53,13 @@
   padding: 0;
 }
 
+/* Keep the designed text scale inside WeChat, including its inline body override. */
+html[data-wechat],
+html[data-wechat] body {
+  -webkit-text-size-adjust: 100% !important;
+  text-size-adjust: 100% !important;
+}
+
 html,
 body {
   background: var(--bg);
