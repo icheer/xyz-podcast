@@ -8,9 +8,16 @@ export default {
   data() {
     return {
       sortableInstance: null,
+      expandedActions: null,
+      removedTrack: null,
+      removedIndex: 0,
+      undoTimer: null,
     };
   },
   watch: {
+    "player.queue.length"() {
+      if (this.player.playlistOpen) this.$nextTick(() => this.initSortable());
+    },
     "player.playlistOpen"(isOpen) {
       if (isOpen) {
         this.$nextTick(() => this.initSortable());
@@ -21,9 +28,26 @@ export default {
   },
   beforeUnmount() {
     this.destroySortable();
+    clearTimeout(this.undoTimer);
   },
   methods: {
     formatDurationSeconds,
+    removeItem(item, index) {
+      this.removedTrack = item;
+      this.removedIndex = index;
+      clearTimeout(this.undoTimer);
+      this.playerActions.removeFromQueue(item.eid);
+      this.undoTimer = setTimeout(() => { this.removedTrack = null; }, 5000);
+    },
+    undoRemove() {
+      const item = this.removedTrack;
+      if (!item) return;
+      this.playerActions.enqueueTrack(item);
+      const index = this.player.queue.findIndex(t => t.eid === item.eid);
+      this.playerActions.reorderQueue(index, Math.min(this.removedIndex, this.player.queue.length - 1));
+      clearTimeout(this.undoTimer);
+      this.removedTrack = null;
+    },
     initSortable() {
       this.destroySortable();
       const el = this.$refs.queueList;
@@ -32,7 +56,7 @@ export default {
 
       this.sortableInstance = Sortable.create(el, {
         handle: ".drag-handle",
-        animation: 150,
+        animation: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 150,
         onEnd: (evt) => {
           const { oldIndex, newIndex, item, from } = evt;
           if (
@@ -66,8 +90,9 @@ export default {
     },
   },
   template: `
-    <div
+    <transition name="queue-sheet"><div
       v-if="player.playlistOpen"
+      v-dialog-focus="() => playerActions.setPlaylistOpen(false)"
       class="drawer-backdrop"
       @click.self="playerActions.setPlaylistOpen(false)"
       role="dialog"
@@ -118,18 +143,20 @@ export default {
               <app-icon name="grip-vertical" :size="16" />
             </span>
 
-            <img class="cover-thumb" style="width:42px;height:42px;border-radius:9px;" :src="item.image" :alt="item.title" />
+            <img v-cover class="cover-thumb" style="width:42px;height:42px;border-radius:9px;" :src="item.image" :alt="item.title" />
 
-            <div class="queue-info" @click="playerActions.playTrack(item)">
+            <button type="button" class="queue-info" @click="playerActions.playTrack(item)">
               <div class="queue-title">{{ item.title }}</div>
               <div class="queue-sub tabular">
                 <span>{{ item.podcastName || '小宇宙播客' }}</span>
                 <span v-if="item.duration"> · {{ formatDurationSeconds(item.duration) }}</span>
                 <span v-if="progressText(item)" style="color:var(--accent);font-weight:600;"> · {{ progressText(item) }}</span>
               </div>
-            </div>
+            </button>
 
             <div class="queue-item-actions">
+              <button type="button" class="queue-icon-btn" :aria-expanded="expandedActions === item.eid" :aria-label="'调整顺序：' + item.title" @click="expandedActions = expandedActions === item.eid ? null : item.eid"><app-icon name="ellipsis" :size="18" /></button>
+              <div v-if="expandedActions === item.eid" class="queue-order-menu">
               <button
                 type="button"
                 class="queue-icon-btn"
@@ -148,10 +175,12 @@ export default {
               >
                 <app-icon name="arrow-down" :size="14" />
               </button>
+              <button type="button" class="queue-icon-btn" :disabled="idx === 0" @click="playerActions.reorderQueue(idx, 0)" title="置顶"><app-icon name="arrow-up-to-line" :size="14" /></button>
+              </div>
               <button
                 type="button"
                 class="queue-icon-btn"
-                @click="playerActions.removeFromQueue(item.eid)"
+                @click="removeItem(item, idx)"
                 title="移除"
               >
                 <app-icon name="x" :size="14" />
@@ -159,7 +188,8 @@ export default {
             </div>
           </div>
         </div>
+        <div v-if="removedTrack" class="queue-undo" role="status">已移出播放列表 <button type="button" class="btn sm" @click="undoRemove">撤销</button></div>
       </div>
-    </div>
+    </div></transition>
   `,
 };

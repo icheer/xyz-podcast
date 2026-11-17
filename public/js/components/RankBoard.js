@@ -55,6 +55,7 @@ export default {
   data() {
     return {
       items: [],
+      showMetrics: false,
       total: 0,
       offset: 0,
       limit: 40,
@@ -474,23 +475,23 @@ export default {
 
           <select class="select-ctrl" :value="sortField" @change="onSortSelectChange" aria-label="排序字段">
             <option v-for="opt in sortOptions" :key="opt.key" :value="opt.key">
-              排序: {{ opt.label }}
+              {{ opt.label }}
             </option>
           </select>
 
-          <button type="button" class="icon-btn" @click="toggleSortDir" :title="sortDir === 'asc' ? '升序' : '降序'">
-            <app-icon name="arrow-up-down" :size="14" />
-            <span>{{ sortDir === 'asc' ? '升序' : '降序' }}</span>
-          </button>
+          <select class="select-ctrl direction-ctrl" :value="sortDir" @change="sortDir = $event.target.value; resetAndFetch()" aria-label="排序方向">
+            <option value="asc">升序 ↑</option><option value="desc">降序 ↓</option>
+          </select>
         </div>
 
+        <button v-if="isDesktop" class="btn sm metrics-toggle" type="button" :aria-pressed="showMetrics" @click="showMetrics = !showMetrics">{{ showMetrics ? '精简指标' : '更多指标' }}</button>
         <div class="board-summary tabular" v-if="fetched">
-          共 {{ total.toLocaleString() }} 条 · 已加载 {{ items.length }} 条
+          共 {{ total.toLocaleString() }} 条
         </div>
       </div>
 
       <div v-if="!fetched && loading" class="skeleton-list" aria-label="加载中">
-        <div v-for="n in 5" :key="n" class="skeleton-card"></div>
+        <div v-for="n in 5" :key="n" class="skeleton-card"><span class="skeleton-cover"></span><span class="skeleton-copy"><i></i><i></i></span><span class="skeleton-metric"></span></div>
       </div>
 
       <div v-else-if="errorMsg && items.length === 0" class="state-box error">
@@ -514,11 +515,12 @@ export default {
           :key="entry.key"
           :data-vindex="entry.index"
           class="rank-card"
+          :class="{ 'is-current': player.currentEid === entry.item.eid }"
           @click="openItem(entry.item)"
         >
           <div class="card-main-row">
             <div class="rank-num tabular" :class="rankBadgeClass(entry.item.rank)">{{ entry.item.rank }}</div>
-            <img class="cover-thumb" :src="entry.item.logoURL" :alt="entry.item.title || entry.item.name" loading="lazy" />
+            <img v-cover class="cover-thumb" :src="entry.item.logoURL" :alt="entry.item.title || entry.item.name" loading="lazy" />
 
             <div class="card-head-text">
               <div class="card-title">{{ isEpisodeBoard ? entry.item.title : entry.item.name }}</div>
@@ -582,7 +584,7 @@ export default {
 
       <!-- Desktop Responsive Table (Virtualized) -->
       <div class="rank-table-wrap" v-else-if="items.length > 0">
-        <table class="rank-table" v-if="isEpisodeBoard">
+        <table class="rank-table episode-table" :class="{ 'show-metrics': showMetrics }" v-if="isEpisodeBoard">
           <thead>
             <tr>
               <th class="sortable" @click="toggleColumnSort('rank')">#{{ sortIndicator('rank') }}</th>
@@ -627,7 +629,7 @@ export default {
               </td>
               <td class="title-col">
                 <div class="table-item-cell">
-                  <img class="table-cover" :src="entry.item.logoURL" :alt="entry.item.title" loading="lazy" />
+                  <img v-cover class="table-cover" :src="entry.item.logoURL" :alt="entry.item.title" loading="lazy" />
                   <div style="min-width:0">
                     <div class="table-title">{{ entry.item.title }}</div>
                     <div class="table-sub">{{ entry.item.podcastName }}</div>
@@ -675,7 +677,7 @@ export default {
           </tbody>
         </table>
 
-        <table class="rank-table" v-else>
+        <table class="rank-table podcast-table" :class="{ 'show-metrics': showMetrics }" v-else>
           <thead>
             <tr>
               <th class="sortable" @click="toggleColumnSort('rank')">#{{ sortIndicator('rank') }}</th>
@@ -711,7 +713,7 @@ export default {
               </td>
               <td class="title-col">
                 <div class="table-item-cell">
-                  <img class="table-cover" :src="entry.item.logoURL" :alt="entry.item.name" loading="lazy" />
+                  <img v-cover class="table-cover" :src="entry.item.logoURL" :alt="entry.item.name" loading="lazy" />
                   <div style="min-width:0">
                     <div class="table-title">{{ entry.item.name }}</div>
                     <div class="table-sub">{{ entry.item.authorsText || '-' }}</div>

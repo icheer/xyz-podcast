@@ -77,8 +77,8 @@ export default {
         </div>
 
         <div class="mini-player-inner">
-          <div class="mini-track" @click="playerActions.setExpanded(true)">
-            <img class="mini-cover" :src="track.image" :alt="track.title" />
+          <button type="button" class="mini-track" @click="playerActions.setExpanded(true)" aria-label="展开播放器">
+            <img v-cover class="mini-cover" :src="track.image" :alt="track.title" />
             <div class="mini-meta">
               <div class="mini-title">{{ track.title }}</div>
               <div class="mini-sub tabular">
@@ -86,12 +86,12 @@ export default {
                 <span v-if="track.podcastName"> · {{ track.podcastName }}</span>
               </div>
             </div>
-          </div>
+          </button>
 
           <div class="mini-controls">
             <button
               type="button"
-              class="skip-icon-btn"
+              class="skip-icon-btn mini-skip"
               @click="playerActions.skipBy(-15)"
               title="后退 15 秒"
               aria-label="后退 15 秒"
@@ -105,14 +105,14 @@ export default {
               @click="playerActions.togglePlay()"
               :title="player.isPlaying ? '暂停' : '播放'"
             >
-              <app-icon v-if="player.isBuffering" name="loader-circle" :size="18" />
+              <app-icon class="buffering-icon" v-if="player.isBuffering" name="loader-circle" :size="18" />
               <app-icon v-else-if="player.isPlaying" name="pause" :size="18" />
               <app-icon v-else name="play" :size="18" />
             </button>
 
             <button
               type="button"
-              class="skip-icon-btn"
+              class="skip-icon-btn mini-skip"
               @click="playerActions.skipBy(30)"
               title="前进 30 秒"
               aria-label="前进 30 秒"
@@ -142,7 +142,7 @@ export default {
       </aside>
 
       <!-- Fullscreen Expanded Player Overlay -->
-      <div v-if="player.expanded" class="full-player-overlay" role="dialog" aria-modal="true" aria-label="播控页">
+      <transition name="player-sheet"><div v-if="player.expanded" v-dialog-focus="() => playerActions.setExpanded(false)" class="full-player-overlay" role="dialog" aria-modal="true" aria-label="播控页">
         <div class="full-player-inner">
           <div class="full-player-head">
             <button type="button" class="icon-btn" @click="playerActions.setExpanded(false)">
@@ -156,7 +156,7 @@ export default {
           </div>
 
           <div class="full-cover-wrap">
-            <img class="full-cover" :src="track.image" :alt="track.title" />
+            <img v-cover class="full-cover" :src="track.image" :alt="track.title" />
           </div>
 
           <div class="full-titles">
@@ -176,6 +176,7 @@ export default {
             <input
               type="range"
               class="scrubber-range"
+              :style="{ '--progress': progressPercent + '%' }"
               min="0"
               :max="Math.max(1, Math.floor(effectiveDuration))"
               :value="Math.floor(displayCurrentTime)"
@@ -199,7 +200,7 @@ export default {
             </button>
 
             <button type="button" class="transport-play" @click="playerActions.togglePlay()" :title="player.isPlaying ? '暂停' : '播放'">
-              <app-icon v-if="player.isBuffering" name="loader-circle" :size="28" />
+              <app-icon class="buffering-icon" v-if="player.isBuffering" name="loader-circle" :size="28" />
               <app-icon v-else-if="player.isPlaying" name="pause" :size="28" />
               <app-icon v-else name="play" :size="28" />
             </button>
@@ -241,7 +242,7 @@ export default {
             </button>
           </div>
         </div>
-      </div>
+      </div></transition>
     </div>
   `,
 };

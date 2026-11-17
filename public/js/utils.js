@@ -191,6 +191,9 @@ export const scrollKeeperMixin = {
   beforeRouteLeave() {
     if (typeof window !== "undefined") {
       this.savedScrollY = window.scrollY || 0;
+      // Router scrolling can happen while the leaving transition is still mounted.
+      this.isKeepAliveActive = false;
+      this.detachScrollKeeper();
     }
   },
   methods: {

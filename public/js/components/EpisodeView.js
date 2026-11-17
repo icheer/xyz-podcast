@@ -18,6 +18,7 @@ export default {
       errorMsg: "",
       episode: null,
       comments: [],
+      expandedReplies: {},
       sourceUrl: "",
       limitReason: "",
     };
@@ -173,14 +174,14 @@ export default {
       <template v-else-if="episode">
         <section class="hero-card">
           <div class="hero-main">
-            <img class="hero-cover" :src="episode.image" :alt="episode.title" />
+            <img v-cover class="hero-cover" :src="episode.image" :alt="episode.title" />
             <div class="hero-info">
               <router-link
                 v-if="episode.podcast?.pid"
                 :to="'/podcast/' + episode.podcast.pid"
                 class="podcast-link-pill"
               >
-                <img v-if="episode.podcast.image" :src="episode.podcast.image" :alt="episode.podcast.title" />
+                <img v-cover v-if="episode.podcast.image" :src="episode.podcast.image" :alt="episode.podcast.title" />
                 <span>{{ episode.podcast.title }}</span>
                 <app-icon name="arrow-right" :size="13" />
               </router-link>
@@ -219,7 +220,7 @@ export default {
           </span>
         </div>
 
-        <section class="section-card">
+        <section class="section-card reading-section">
           <div class="section-title">
             <span>Shownotes 节目简介</span>
             <span style="font-size: 12px; font-weight: 400; color: var(--text-muted);">点击文内时间戳可跳转</span>
@@ -233,7 +234,7 @@ export default {
           <p v-else style="color: var(--text-muted);">暂无节目简介</p>
         </section>
 
-        <section class="section-card">
+        <section class="section-card reading-section">
           <div class="section-title">
             <span>热门评论 ({{ comments.length }})</span>
           </div>
@@ -253,7 +254,7 @@ export default {
           <div class="comment-list" v-else>
             <article v-for="c in comments" :key="c.id" class="comment-item">
               <div class="comment-head">
-                <img class="comment-avatar" :src="c.author.avatar" :alt="c.author.nickname" loading="lazy" />
+                <img v-cover class="comment-avatar" :src="c.author.avatar" :alt="c.author.nickname" loading="lazy" />
                 <div style="flex:1; min-width:0;">
                   <div class="comment-author">
                     <span>{{ c.author.nickname }}</span>
@@ -279,13 +280,14 @@ export default {
 
               <div class="comment-text">{{ c.text }}</div>
 
-              <div v-if="c.replies && c.replies.length > 0" class="comment-replies">
+              <div v-if="c.replies && c.replies.length > 0" class="comment-replies" :class="{ collapsed: !expandedReplies[c.id] }" :id="'replies-' + c.id">
                 <div v-for="r in c.replies" :key="r.id" class="reply-item">
                   <strong>{{ r.author.nickname }}</strong>
                   <span v-if="r.replyToNickname" style="color: var(--text-muted);"> 回复 @{{ r.replyToNickname }}</span>：
                   <span>{{ r.text }}</span>
                 </div>
               </div>
+              <button v-if="c.replies?.length" type="button" class="replies-toggle" :aria-expanded="!!expandedReplies[c.id]" :aria-controls="'replies-' + c.id" @click="expandedReplies[c.id] = !expandedReplies[c.id]">{{ expandedReplies[c.id] ? '收起回复' : '展开回复 (' + c.replies.length + ')' }}</button>
             </article>
           </div>
         </section>

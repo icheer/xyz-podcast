@@ -153,7 +153,7 @@ export default {
       <template v-else-if="podcast">
         <section class="hero-card">
           <div class="hero-main">
-            <img class="hero-cover" :src="podcast.image" :alt="podcast.title" />
+            <img v-cover class="hero-cover" :src="podcast.image" :alt="podcast.title" />
             <div class="hero-info">
               <h1 class="hero-title">{{ podcast.title }}</h1>
               <div class="hero-meta tabular">
@@ -188,7 +188,7 @@ export default {
             </button>
           </div>
 
-          <div v-if="podcast.description">
+          <div v-if="podcast.description" class="hero-description">
             <p class="hero-desc" :class="{ collapsed: !descExpanded }">{{ podcast.description }}</p>
             <button
               type="button"
@@ -221,7 +221,7 @@ export default {
           <div class="ep-list">
             <article v-for="ep in episodes" :key="ep.eid" class="ep-row">
               <div class="ep-row-top">
-                <img
+                <img v-cover
                   class="cover-thumb"
                   style="width: 52px; height: 52px;"
                   :src="ep.image || podcast.image"

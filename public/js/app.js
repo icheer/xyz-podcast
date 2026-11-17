@@ -91,6 +91,7 @@ const AppRoot = {
 
     return {
       searchQuery: "",
+      searchOpen: false,
       boardMeta: {},
       theme: prefs.theme,
       deferredInstallPrompt: null,
@@ -616,7 +617,7 @@ const AppRoot = {
     },
   },
   template: `
-    <div class="app-shell" :class="{ 'has-player': hasCurrentTrack }">
+    <div class="app-shell" :class="{ 'has-player': hasCurrentTrack, 'detail-route': !isBoardRoute }">
       <header class="site-header" ref="siteHeader">
         <div class="container">
           <div class="header-top">
@@ -626,11 +627,12 @@ const AppRoot = {
               </div>
               <div style="min-width:0;">
                 <div class="brand-title">小宇宙热榜收听</div>
-                <div class="brand-sub" v-if="syncBadgeText">{{ syncBadgeText }}</div>
+                <div class="brand-sub" v-if="syncBadgeText" :title="syncBadgeText">{{ syncBadgeText }}</div>
               </div>
             </router-link>
 
             <div class="header-actions">
+              <button v-if="isBoardRoute" type="button" class="icon-btn mobile-search-toggle" aria-label="搜索榜单" :aria-expanded="searchOpen || !!searchQuery" @click="searchOpen = !searchOpen; searchOpen && $nextTick(() => $refs.searchInput.focus())"><app-icon name="search" :size="17" /></button>
               <button
                 v-if="deferredInstallPrompt"
                 type="button"
@@ -663,7 +665,7 @@ const AppRoot = {
             </div>
           </div>
 
-          <div class="header-controls">
+          <div class="header-controls" v-if="isBoardRoute">
             <nav class="board-tabs" aria-label="榜单切换">
               <router-link
                 v-for="tab in boardTabs"
@@ -675,9 +677,10 @@ const AppRoot = {
               >{{ tab.label }}</router-link>
             </nav>
 
-            <div class="search-wrap" v-if="isBoardRoute">
+            <div class="search-wrap" :class="{ 'search-open': searchOpen || searchQuery }" v-if="isBoardRoute">
               <app-icon name="search" :size="15" class="search-icon" />
               <input
+                ref="searchInput"
                 v-model="searchQuery"
                 type="search"
                 class="search-input"
@@ -701,14 +704,14 @@ const AppRoot = {
       <main class="main-content">
         <div class="container">
           <router-view v-slot="{ Component, route }">
-            <keep-alive include="RankBoard,PodcastView" :max="8">
+            <transition name="page" mode="out-in"><keep-alive include="RankBoard,PodcastView" :max="8">
               <component
                 :is="Component"
                 :key="route.meta && route.meta.board ? 'board-' + route.meta.board : (route.name === 'PodcastView' ? 'podcast-' + route.params.pid : route.fullPath)"
                 :search-query="searchQuery"
                 :board-meta="boardMeta"
               />
-            </keep-alive>
+            </keep-alive></transition>
           </router-view>
         </div>
       </main>
@@ -730,11 +733,56 @@ const AppRoot = {
       <player-bar />
       <playlist-drawer />
 
-      <div v-if="toastMessage" class="toast-pill" role="status">{{ toastMessage }}</div>
+      <transition name="toast"><div v-if="toastMessage" class="toast-pill" role="status">{{ toastMessage }}</div></transition>
     </div>
   `,
 };
 
 const app = createApp(AppRoot);
+// Keep keyboard focus inside the topmost dialog and restore it after leaving.
+let dialogCount = 0;
+let previousOverflow = "";
+app.directive("dialog-focus", {
+  mounted(el, binding) {
+    const trigger = document.activeElement;
+    if (dialogCount++ === 0) {
+      previousOverflow = document.body.style.overflow;
+      document.body.style.overflow = "hidden";
+    }
+    const focusable = () => [...el.querySelectorAll('button:not(:disabled), a[href], input, select, [tabindex="0"]')].filter(n => n.getClientRects().length);
+    el.tabIndex = -1;
+    const focusTimer = setTimeout(() => (focusable()[0] || el).focus({ preventScroll: true }), 0);
+    const onKey = event => {
+      const dialogs = [...document.querySelectorAll('[aria-modal="true"]')];
+      if (dialogs.at(-1) !== el) return;
+      if (event.key === "Escape") { event.preventDefault(); binding.value(); }
+      if (event.key === "Tab") {
+        const nodes = focusable(), first = nodes[0], last = nodes.at(-1);
+        if (!first) { event.preventDefault(); el.focus(); return; }
+        if (event.shiftKey && (document.activeElement === first || !el.contains(document.activeElement))) { event.preventDefault(); last.focus(); }
+        else if (!event.shiftKey && (document.activeElement === last || !el.contains(document.activeElement))) { event.preventDefault(); first.focus(); }
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    el._dialogCleanup = () => {
+      clearTimeout(focusTimer);
+      document.removeEventListener("keydown", onKey);
+      if (--dialogCount === 0) document.body.style.overflow = previousOverflow;
+      if (trigger?.isConnected) trigger.focus({ preventScroll: true });
+    };
+  },
+  unmounted(el) { el._dialogCleanup?.(); },
+});
+app.directive("cover", {
+  mounted(el) {
+    el._coverError = () => {
+      if (el.getAttribute("src") !== "/icon.svg") { el.src = "/icon.svg"; el.classList.add("cover-fallback"); }
+    };
+    el.addEventListener("error", el._coverError);
+    if (!el.getAttribute("src") || (el.complete && !el.naturalWidth)) el._coverError();
+  },
+  updated(el) { if (el.complete && !el.naturalWidth) el._coverError(); },
+  unmounted(el) { el.removeEventListener("error", el._coverError); },
+});
 app.use(router);
 app.mount("#app");
