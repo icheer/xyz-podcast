@@ -165,6 +165,10 @@
 
 ## 前端设计审查（2026-11-17）
 
+- [x] **UI-13** 旧页面同步退出，详情仅保留120ms透明度淡入，去掉上移位移与旧页100ms淡出，避免滚动归零时仍显示旧列表。
+  - Playwright帧采样复现修改前手机/桌面各7帧旧列表已归零但仍可见；修改后390/1280px均0帧。榜单及频道进入详情、后退恢复1100/1099px及频道原位置、减少动态效果设置通过，页面错误0。
+  - `npm test`18/18、JS语法及diff检查通过；未部署。
+
 - [x] **DATA-02** 核查Worker/浏览器现有请求头与浏览器限制。
   - 代码核查：xyzrank同步已有UA/Referer/Accept；Worker小宇宙抓取已有UA/Referer/Accept/Accept-Language；浏览器详情请求为cors+omit+no-referrer，保留真实浏览器生成的Origin/UA等。
   - 官方资料核对：MDN Forbidden request header、RequestInit、CORS-safelisted request header；Cloudflare HTTP headers文档确认fetch子请求附加CF-Worker。浏览器不能任意伪造Referer/Origin/Sec-*；referrer选项仅允许当前来源同源URL等合法值，额外非安全列表头可能引入CORS预检。
@@ -260,3 +264,5 @@
 | 2026-11-17 | DATA-01 | 核实20/21热评差异来自上游原始列表，未发现本项目重复计数 | 8份官网原始HTML与项目解析器逐一比对通过 | 按上游实际条数展示 |
 
 | 2026-11-17 | DATA-02 | 对照现有请求构造和官方文档评估Referer等标头 | 代码/MDN/Cloudflare资料核查完成 | 保持当前请求头，无产品变更 |
+
+| 2026-11-17 | UI-13 | 消除列表进入详情前的归零闪跳，缩短新页淡入 | 手机/桌面帧采样旧列表顶部可见帧7→0，榜单/频道后退恢复通过，单测18/18 | 未部署 |

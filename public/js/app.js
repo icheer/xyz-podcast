@@ -190,6 +190,10 @@ const AppRoot = {
     window.removeEventListener("beforeunload", this.flushProgressNow);
   },
   methods: {
+    finishPageLeave(_el, done) {
+      // Remove the old view before Vue Router resets the document scroll position.
+      done();
+    },
     syncHeaderHeight() {
       const el = this.$refs.siteHeader;
       if (!el || typeof document === "undefined") return;
@@ -704,7 +708,7 @@ const AppRoot = {
       <main class="main-content">
         <div class="container">
           <router-view v-slot="{ Component, route }">
-            <transition name="page" mode="out-in"><keep-alive include="RankBoard,PodcastView" :max="8">
+            <transition name="page" mode="out-in" @leave="finishPageLeave"><keep-alive include="RankBoard,PodcastView" :max="8">
               <component
                 :is="Component"
                 :key="route.meta && route.meta.board ? 'board-' + route.meta.board : (route.name === 'PodcastView' ? 'podcast-' + route.params.pid : route.fullPath)"

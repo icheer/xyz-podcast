@@ -1722,10 +1722,8 @@ button.queue-info { text-align: left; white-space: normal; }
 .queue-sheet-enter-from .drawer-panel, .queue-sheet-leave-to .drawer-panel { transform: translateY(100%); }
 .player-sheet-enter-active, .player-sheet-leave-active { transition: transform 320ms cubic-bezier(.22,.8,.25,1), opacity 240ms; }
 .player-sheet-enter-from, .player-sheet-leave-to { transform: translateY(30px); opacity: 0; }
-.page-enter-active { transition: opacity 180ms, transform 180ms; }
-.page-leave-active { transition: opacity 100ms; }
-.page-enter-from { opacity: 0; transform: translateY(6px); }
-.page-leave-to { opacity: 0; }
+.page-enter-active { transition: opacity 120ms; }
+.page-enter-from { opacity: 0; }
 .toast-enter-active, .toast-leave-active { transition: opacity 160ms; }
 .toast-enter-from, .toast-leave-to { opacity: 0; }
 @media (min-width: 768px) {
