@@ -165,6 +165,11 @@
 
 ## 前端设计审查（2026-11-17）
 
+- [x] **DATA-02** 核查Worker/浏览器现有请求头与浏览器限制。
+  - 代码核查：xyzrank同步已有UA/Referer/Accept；Worker小宇宙抓取已有UA/Referer/Accept/Accept-Language；浏览器详情请求为cors+omit+no-referrer，保留真实浏览器生成的Origin/UA等。
+  - 官方资料核对：MDN Forbidden request header、RequestInit、CORS-safelisted request header；Cloudflare HTTP headers文档确认fetch子请求附加CF-Worker。浏览器不能任意伪造Referer/Origin/Sec-*；referrer选项仅允许当前来源同源URL等合法值，额外非安全列表头可能引入CORS预检。
+  - 建议：现有头无需为假设的未来反爬而堆叠；保持简单GET与当前no-referrer，按实际403/429/CORS变化调整，优先控制请求量、退避和故障可观测性。补Referer无法保证不被拦截，也不能消除CF-Worker平台标记。未修改产品代码。
+
 - [x] **DATA-01** 调查网页热评20/21条差异，对比上游原始评论、置顶与解析结果。
   - 抽查线上热门单集前8项官网原始 `__NEXT_DATA__.props.pageProps.comments`：3项21条（1置顶+20普通），3项20条（无置顶），另2项20条（1置顶+19普通）；8项评论ID均唯一，解析后条数及置顶数与原始数据完全一致。
   - 结论：抽样未发现重复计数/多解析的bug；21条由上游提供且样本均含额外置顶评论；有置顶也可能仅20条，不能把21或20作为固定契约。上游服务端如何合并/去重置顶未公开，本次不将推断当作已证实算法。二级回复保留在replies中，不增加父评论列表条数。
@@ -253,3 +258,5 @@
 | 2026-11-17 | UI-12 | 仅存在真实时间戳跳转按钮时显示提示 | Playwright六组内容可见性验证通过 | 未部署 |
 
 | 2026-11-17 | DATA-01 | 核实20/21热评差异来自上游原始列表，未发现本项目重复计数 | 8份官网原始HTML与项目解析器逐一比对通过 | 按上游实际条数展示 |
+
+| 2026-11-17 | DATA-02 | 对照现有请求构造和官方文档评估Referer等标头 | 代码/MDN/Cloudflare资料核查完成 | 保持当前请求头，无产品变更 |
