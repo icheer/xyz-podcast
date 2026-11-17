@@ -63,6 +63,7 @@ body {
   -webkit-font-smoothing: antialiased;
   -webkit-tap-highlight-color: transparent;
   overflow-x: clip;
+  overscroll-behavior-y: none;
 }
 
 a {
@@ -1216,6 +1217,7 @@ img {
   flex-direction: column;
   padding: calc(16px + env(safe-area-inset-top, 0px)) 20px calc(24px + env(safe-area-inset-bottom, 0px));
   overflow-y: auto;
+  overscroll-behavior-y: none;
 }
 
 .full-player-inner {
@@ -1693,7 +1695,7 @@ button.mini-track { text-align: left; white-space: normal; border-radius: 8px; }
 .utility-row { border: 0; background: transparent; }
 .util-btn { min-width: 64px; min-height: 48px; }
 .drawer-panel { min-height: 0; max-height: 80dvh; }
-.drawer-body { flex: 0 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.drawer-body { flex: 0 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior-y: none; }
 .drawer-header { flex-shrink: 0; }
 .queue-item { flex-shrink: 0; border-color: transparent; gap: 8px; padding: 10px 4px; position: relative; flex-wrap: wrap; }
 .queue-item.active { border-color: transparent; background: var(--accent-soft); }
