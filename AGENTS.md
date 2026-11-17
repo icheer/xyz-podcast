@@ -23,7 +23,7 @@
 ### 2.1 运行时与后端
 - **Cloudflare Workers** + **Wrangler v4**（无 TypeScript 编译/打包器需求，直接原生 ES Modules JS）。
 - **存储**：**Cloudflare D1 (SQLite)**，Binding 名为 `DB`。
-- **静态资源托管**：Workers Static Assets (`[assets]` 配置 `directory = "./public"`，`binding = "ASSETS"`，`not_found_handling = "single-page-application"`，`run_worker_first = ["/api/*"]`)，实现零构建多文件拆分与 SPA History 路由兜底。
+- **静态资源托管**：Workers Static Assets (`[assets]` 配置 `directory = "./public"`，`binding = "ASSETS"`，`not_found_handling = "single-page-application"`，`run_worker_first = ["/api/*", "/__scheduled"]`)，实现零构建多文件拆分与 SPA History 路由兜底。
   - 若需极简内嵌单文件方案，也可参考 `aigc-gallery` 的 `import indexHtml from "../public/index.html" with { type: "text" }`，但本项目含 3 类视图 + 全局播放器 + 播放列表抽屉，**优先使用 `public/` 多文件 + `[assets]`** 以避免单文件膨胀导致后续 Agent 编辑困难。
 
 ### 2.2 前端（零构建，CDN / unpkg）
@@ -48,6 +48,7 @@ xyz-podcast/
 ├── package.json              # wrangler devDependency 与常用脚本
 ├── wrangler.toml             # Worker 配置（D1 binding: DB、ASSETS、Cron trigger）
 ├── .dev.vars                 # 本地密钥（不提交 git，如 ADMIN_KEY）
+├── .dev.vars.example         # 本地密钥模板
 ├── .gitignore                # 忽略 node_modules、.wrangler、.dev.vars、.env
 ├── migrations/
 │   └── 0001_init.sql         # D1 表结构迁移脚本
@@ -74,6 +75,7 @@ xyz-podcast/
 │       ├── storage.js        # localStorage 管理：播放列表队列、断点续播进度、倍速/循环设置
 │       ├── utils.js          # 时长格式化、时间戳识别转换、数字缩写（1.2万）
 │       ├── components/
+│       │   ├── AppIcon.js        # Lucide UMD SVG 安全包装组件（避免 Vue VDOM 冲突）
 │       │   ├── RankBoard.js      # 4 榜单展示组件（移动端卡片 / PC 表格、搜索/排序/加载更多）
 │       │   ├── PodcastView.js    # 播客频道页（简介 + 最新 15 集 + 快捷播放/加队列）
 │       │   ├── EpisodeView.js    # 单集播放页（Shownotes 时间戳跳转 + 热评区 + 下载）
@@ -81,7 +83,9 @@ xyz-podcast/
 │       │   └── PlaylistDrawer.js # 播放列表抽屉（SortableJS 拖拽排序 + 上移/下移/移除）
 │       └── app.js            # Vue 3 Options API 根实例、VueRouter 初始化、全局音频控制器
 └── test/                     # Node 内置 test runner (node --test) 单元测试
+    ├── frontend.test.js
     ├── parser.test.js
+    ├── schema.test.js
     └── sync.test.js
 ```
 
@@ -274,9 +278,13 @@ npm run deploy               # npx wrangler deploy
 ## 9. 当前进度与交接快照
 
 - **最后更新**：2026-11-17
-- **当前阶段**：`Phase 3 已解除阻塞并完成，目录已扁平化至仓库根路径，正在推进 Phase 4 — 前端骨架与首页 4 榜单`
+- **当前阶段**：`Phase 0 ~ Phase 6 与 Phase 7 本地回归全部完成，待用户侧绑定真实 Cloudflare 账号后执行线上部署 (P7-04)`
 - **已完成事项**：
-  - 消除多余的 `xyz-podcast/xyz-podcast` 嵌套目录，将全部项目文件通过 `git mv` 移至仓库根目录 `/home/projects/_ai-apps/xyz-podcast/`。
-  - `Phase 0` ~ `Phase 2`：D1 迁移、`src/db/sync.js` 分批接力同步状态机（本地 D1 已同步 9,132 条全量榜单数据）、`scheduled()` Cron、`/api/admin/sync*` 与 `/api/boards/*`。
-  - `Phase 3`：验证浏览器端 CORS 直连 `www.xiaoyuzhoufm.com` 可用（在 `http://127.0.0.1:8787/` 页面上下文实测返回 `200` 与完整 `__NEXT_DATA__`）；将解析器沉淀为前后端共享纯函数 `public/js/xyzParser.js`（`src/utils/parser.js` 重导出），后端保留 `/api/xiaoyuzhou/*` 可选 `XYZ_RELAY_URL` 兜底；`/api/audio/download` 已在 `wrangler dev` 实测通过；`npm test` 15/15 通过。
-- **下一位 Agent 的精确起点**：继续实施 `CHECKLIST.md` 的 **`Phase 4`（`P4-01` ~ `P4-04`）** 及后续 `Phase 5` ~ `Phase 7`。
+  - `Phase 0` ~ `Phase 3`：完成架构设计、目录扁平化、D1 schema (`0001_init.sql`)、分批接力同步状态机（本地 D1 已同步 9,132 条全量榜单数据）、`/api/boards/*`、`/api/audio/download`、前后端共享解析器 `public/js/xyzParser.js` 及浏览器端 CORS 直连打通。
+  - `Phase 4` ~ `Phase 6`：完成零构建 Vue 3 Options API SPA（`public/index.html`、`app.css`、`api.js`、`utils.js`、`storage.js`、`app.js`、`AppIcon.js`、`RankBoard.js`、`PodcastView.js`、`EpisodeView.js`、`PlayerBar.js`、`PlaylistDrawer.js`）。
+  - `Phase 7`（本地回归）：`npm test` **19/19** 全通过；真实无头浏览器 Playwright + Obscura 端到端实测移动端 (`390x844`) 与桌面端 (`1280x800`) 4 榜单切换、搜索排序、单集 26 处原生 `data-timestamp` 时间戳跳转、21 条热评、频道 15 集加队列、全屏播控（`-15s`/`+30s`/倍速/循环）、队列调序、`localStorage` 刷新恢复与断点续播 CTA、异常态兜底全部通过，**0 控制台/页面报错**。
+- **待用户侧线上部署动作 (`P7-04`)**：
+  1. `npx wrangler login` 登录 Cloudflare 账号。
+  2. `npx wrangler d1 create xyz-podcast-db` 并把返回的 `database_id` 填入 `wrangler.toml`。
+  3. `npx wrangler d1 migrations apply xyz-podcast-db --remote` 应用建表迁移。
+  4. `npx wrangler secret put ADMIN_KEY` 配置管理密钥，再执行 `npm run deploy` 上线，最后按批调用 `/api/admin/sync` 完成首次冷启动灌库。
