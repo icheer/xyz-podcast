@@ -59,13 +59,11 @@ export default {
     },
     openEpisodePage() {
       if (!this.track?.eid) return;
-      this.playerActions.setExpanded(false);
-      this.$router.push(`/episode/${this.track.eid}`);
+      this.playerActions.navigateFromPlayer(`/episode/${this.track.eid}`);
     },
     openPodcastPage() {
       if (!this.track?.pid) return;
-      this.playerActions.setExpanded(false);
-      this.$router.push(`/podcast/${this.track.pid}`);
+      this.playerActions.navigateFromPlayer(`/podcast/${this.track.pid}`);
     },
   },
   template: `

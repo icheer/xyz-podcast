@@ -1,4 +1,5 @@
 import { fetchBoardsMeta } from "./api.js";
+import { createOverlayHistory } from "./overlayHistory.js";
 import {
   LOOP_MODES,
   loadPrefs,
@@ -67,7 +68,9 @@ const routes = [
 const router = createRouter({
   history: createWebHistory(),
   routes,
-  scrollBehavior(to, _from, savedPosition) {
+  scrollBehavior(to, from, savedPosition) {
+    // Same-URL overlay history must not move the underlying page.
+    if (to.fullPath === from.fullPath) return false;
     if (to.meta?.board || to.name === "PodcastView") {
       // RankBoard & PodcastView live inside <keep-alive> and restore their own scrollY
       return false;
@@ -132,12 +135,9 @@ const AppRoot = {
         cycleLoopMode: this.cycleLoopMode,
         playNext: this.playNext,
         playPrev: this.playPrev,
-        setExpanded: (v) => {
-          this.player.expanded = Boolean(v);
-        },
-        setPlaylistOpen: (v) => {
-          this.player.playlistOpen = Boolean(v);
-        },
+        setExpanded: this.setExpanded,
+        setPlaylistOpen: this.setPlaylistOpen,
+        navigateFromPlayer: this.navigateFromPlayer,
         showToast: this.showToast,
       },
     };
@@ -174,6 +174,11 @@ const AppRoot = {
     },
   },
   mounted() {
+    this._overlayHistory = createOverlayHistory(router, stack => {
+      this.player.expanded = stack.includes("player") && this.hasCurrentTrack;
+      this.player.playlistOpen = stack.includes("queue");
+    }, () => this.showToast("切换播放器视图失败，请重试"));
+    this._overlayHistory.sync();
     this.applyTheme();
     this.loadMeta();
     this.restoreCurrentTrackOnBoot();
@@ -184,12 +189,24 @@ const AppRoot = {
     window.addEventListener("beforeunload", this.flushProgressNow);
   },
   beforeUnmount() {
+    this._overlayHistory?.destroy();
     this.flushProgressNow();
     this.destroyHeaderObserver();
     window.removeEventListener("pagehide", this.flushProgressNow);
     window.removeEventListener("beforeunload", this.flushProgressNow);
   },
   methods: {
+    setExpanded(open) {
+      if (!open) this.player.expanded = false;
+      return this._overlayHistory.set("player", Boolean(open));
+    },
+    setPlaylistOpen(open) {
+      if (!open) this.player.playlistOpen = false;
+      return this._overlayHistory.set("queue", Boolean(open));
+    },
+    navigateFromPlayer(path) {
+      return this._overlayHistory.navigate(path);
+    },
     finishPageLeave(_el, done) {
       // Remove the old view before Vue Router resets the document scroll position.
       done();
@@ -395,7 +412,7 @@ const AppRoot = {
         if (nextQueue.length === 0) {
           this.player.currentEid = null;
           this.player.isPlaying = false;
-          this.player.expanded = false;
+          this.setExpanded(false);
           if (audio) {
             audio.pause();
             audio.removeAttribute("src");
@@ -419,7 +436,7 @@ const AppRoot = {
       this.player.isPlaying = false;
       this.player.currentTime = 0;
       this.player.duration = 0;
-      this.player.expanded = false;
+      this.setExpanded(false);
       saveQueue([], null);
       this.showToast("已清空播放列表");
     },
@@ -651,7 +668,7 @@ const AppRoot = {
               <button
                 type="button"
                 class="icon-btn"
-                @click="player.playlistOpen = true"
+                @click="setPlaylistOpen(true)"
                 title="打开播放列表"
               >
                 <app-icon name="list-music" :size="16" />
