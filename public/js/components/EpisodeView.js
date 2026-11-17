@@ -325,14 +325,14 @@ export default {
 
               <div class="comment-text">{{ c.text }}</div>
 
-              <div v-if="c.replies && c.replies.length > 0" class="comment-replies" :class="{ collapsed: !expandedReplies[c.id] }" :id="'replies-' + c.id">
+              <div v-if="c.replies && c.replies.length > 0" class="comment-replies" :class="{ collapsed: c.replies.length >= 3 && !expandedReplies[c.id] }" :id="'replies-' + c.id">
                 <div v-for="r in c.replies" :key="r.id" class="reply-item">
                   <strong>{{ r.author.nickname }}</strong>
                   <span v-if="r.replyToNickname" style="color: var(--text-muted);"> 回复 @{{ r.replyToNickname }}</span>：
                   <span>{{ r.text }}</span>
                 </div>
               </div>
-              <button v-if="c.replies?.length" type="button" class="replies-toggle" :aria-expanded="!!expandedReplies[c.id]" :aria-controls="'replies-' + c.id" @click="expandedReplies[c.id] = !expandedReplies[c.id]">{{ expandedReplies[c.id] ? '收起回复' : '展开回复 (' + c.replies.length + ')' }}</button>
+              <button v-if="c.replies?.length >= 3" type="button" class="replies-toggle" :aria-expanded="!!expandedReplies[c.id]" :aria-controls="'replies-' + c.id" @click="expandedReplies[c.id] = !expandedReplies[c.id]">{{ expandedReplies[c.id] ? '收起回复' : '展开回复 (' + c.replies.length + ')' }}</button>
             </article>
           </div>
         </section>
