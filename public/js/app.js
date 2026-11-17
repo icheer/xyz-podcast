@@ -249,6 +249,58 @@ const AppRoot = {
         window.scrollTo({ top: 0, behavior: "smooth" });
       }
     },
+    onBoardTouchStart(event) {
+      this._boardSwipe = null;
+      if (!this.isBoardRoute || window.innerWidth >= 768 || event.touches.length !== 1 ||
+          this.aboutOpen || this.player.expanded || this.player.playlistOpen) return;
+      if (!event.target.closest('.rank-board') ||
+          event.target.closest('button, a, input, select, textarea, [role="slider"]')) return;
+      const touch = event.touches[0];
+      // Leave native browser Back/Forward gestures at the screen edges alone.
+      if (touch.clientX < 24 || touch.clientX > window.innerWidth - 24) return;
+      this._boardSwipe = {
+        x: touch.clientX, y: touch.clientY, started: performance.now(),
+        path: this.$route.path, axis: null,
+      };
+    },
+    onBoardTouchMove(event) {
+      const swipe = this._boardSwipe;
+      if (!swipe) return;
+      if (event.touches.length !== 1) { this._boardSwipe = null; return; }
+      const dx = Math.abs(event.touches[0].clientX - swipe.x);
+      const dy = Math.abs(event.touches[0].clientY - swipe.y);
+      if (!swipe.axis && Math.max(dx, dy) >= 12) {
+        if (dx > dy * 1.5) swipe.axis = 'x';
+        else { this._boardSwipe = null; return; }
+      }
+      if (swipe.axis === 'x' && event.cancelable) event.preventDefault();
+    },
+    onBoardTouchEnd(event) {
+      const swipe = this._boardSwipe;
+      this._boardSwipe = null;
+      if (!swipe || swipe.axis !== 'x' || event.touches.length ||
+          performance.now() - swipe.started > 700 || this.$route.path !== swipe.path ||
+          window.innerWidth >= 768 || this.aboutOpen || this.player.expanded || this.player.playlistOpen) return;
+      const touch = event.changedTouches[0];
+      if (!touch) return;
+      const dx = touch.clientX - swipe.x;
+      const dy = touch.clientY - swipe.y;
+      if (Math.abs(dx) < 64 || Math.abs(dx) <= Math.abs(dy) * 1.5) return;
+      this._boardSwipeClickUntil = performance.now() + 350;
+      const index = BOARD_TABS.findIndex(tab => tab.path === swipe.path);
+      const next = BOARD_TABS[index + (dx < 0 ? 1 : -1)];
+      if (next) this.$router.push(next.path);
+    },
+    cancelBoardSwipe() {
+      this._boardSwipe = null;
+    },
+    onBoardSwipeClick(event) {
+      if (event.detail && performance.now() < this._boardSwipeClickUntil) {
+        event.preventDefault();
+        event.stopPropagation();
+        this._boardSwipeClickUntil = 0;
+      }
+    },
     registerPwa() {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register("/sw.js").catch(() => {});
@@ -730,7 +782,7 @@ const AppRoot = {
         </div>
       </header>
 
-      <main class="main-content">
+      <main class="main-content" @touchstart.passive="onBoardTouchStart" @touchmove="onBoardTouchMove" @touchend.passive="onBoardTouchEnd" @touchcancel="cancelBoardSwipe" @click.capture="onBoardSwipeClick">
         <div class="container">
           <router-view v-slot="{ Component, route }">
             <transition name="page" mode="out-in" @leave="finishPageLeave"><keep-alive include="RankBoard,PodcastView" :max="8">
