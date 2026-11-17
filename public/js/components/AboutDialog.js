@@ -5,10 +5,29 @@ export default {
   components: { AppIcon },
   props: { open: Boolean },
   emits: ["close"],
+  methods: {
+    onTouchStart(event) {
+      this._touchY = event.touches[0]?.clientY;
+    },
+    onTouchMove(event) {
+      if (event.touches.length !== 1) return;
+      const y = event.touches[0].clientY;
+      const delta = y - (this._touchY ?? y);
+      this._touchY = y;
+      const panel = this.$refs.panel;
+      // Stop native scroll chaining, including iOS when the panel cannot scroll.
+      const inside = panel?.contains(event.target);
+      const atTop = panel && panel.scrollTop <= 0;
+      const atBottom = panel && panel.scrollTop + panel.clientHeight >= panel.scrollHeight - 1;
+      if (!inside || panel.scrollHeight <= panel.clientHeight || (atTop && delta > 0) || (atBottom && delta < 0)) {
+        if (event.cancelable) event.preventDefault();
+      }
+    },
+  },
   template: `
     <transition name="about-dialog">
-      <div v-if="open" class="about-backdrop" @click.self="$emit('close')">
-        <section class="about-panel" role="dialog" aria-modal="true" aria-labelledby="about-title" v-dialog-focus="() => $emit('close')">
+      <div v-if="open" class="about-backdrop" @click.self="$emit('close')" @touchstart.passive="onTouchStart" @touchmove.stop="onTouchMove">
+        <section ref="panel" class="about-panel" role="dialog" aria-modal="true" aria-labelledby="about-title" v-dialog-focus="() => $emit('close')">
           <div class="about-heading">
             <span class="about-eyebrow">ABOUT THE PROJECT</span>
             <button type="button" class="icon-btn" aria-label="关闭项目介绍" @click="$emit('close')"><app-icon name="x" :size="20" /></button>
