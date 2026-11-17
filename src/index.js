@@ -62,12 +62,12 @@ async function handleApi(request, env, _ctx, url) {
 
   const podcastMatch = path.match(/^\/api\/xiaoyuzhou\/podcast\/([^/]+)$/);
   if (podcastMatch && method === "GET") {
-    return handlePodcastDetail(podcastMatch[1]);
+    return handlePodcastDetail(podcastMatch[1], env);
   }
 
   const episodeMatch = path.match(/^\/api\/xiaoyuzhou\/episode\/([^/]+)$/);
   if (episodeMatch && method === "GET") {
-    return handleEpisodeDetail(episodeMatch[1]);
+    return handleEpisodeDetail(episodeMatch[1], env);
   }
 
   if (path === "/api/audio/download" && (method === "GET" || method === "HEAD")) {

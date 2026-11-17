@@ -62,17 +62,17 @@
 
 ## Phase 3：小宇宙实时代理 & 流式音频下载
 
-- [x] **P3-01** 实现 `__NEXT_DATA__` 提取与数据清洗纯函数 `src/utils/parser.js` 及单测 `test/parser.test.js`
+- [x] **P3-01** 实现 `__NEXT_DATA__` 提取与数据清洗纯函数（前后端共享 `public/js/xyzParser.js`，`src/utils/parser.js` 重导出）及单测 `test/parser.test.js`
   - *验收标准*：
     - 能从 HTML 中安全提取 `<script id="__NEXT_DATA__">` 并解析播客频道结构与单集+热评结构。
     - 正确处理图片缺失继承、时长统一（秒）、付费标志 `payType` 透传、边界情况（如 404/无 `__NEXT_DATA__`）报错。
   - *验证命令*：`npm test` 全部通过（15/15）。
-- [!] **P3-02** 实现 `GET /api/xiaoyuzhou/podcast/:pid` (`src/handlers/xiaoyuzhou.js`)
-  - *验收标准*：校验 `pid` 格式；携带浏览器 UA + `Referer: https://www.xiaoyuzhoufm.com/` 实时请求小宇宙并清洗返回播客元信息 + 最新 15 集列表 + `limited: true`。
-  - *阻塞原因*：代码与 ID 校验已实现，但实测在 `wrangler dev` (`workerd`) 与 Cloudflare Workers 生产环境出站 `fetch()` 会由平台强制注入 `CF-Worker` 请求头（Cloudflare 文档确认 Worker 代码无法删除），而 `www.xiaoyuzhoufm.com` (`Potato-Server`) 明确对含 `cf-worker` 头的请求返回 `403 Forbidden`（同一台机器下不含该头的 `curl` 与 Node `fetch` 均返回 `200`）。需用户决策改用非 Worker 运行时或外部转发网关。
-- [!] **P3-03** 实现 `GET /api/xiaoyuzhou/episode/:eid` (`src/handlers/xiaoyuzhou.js`)
-  - *验收标准*：校验 `eid` 格式；实时请求并返回单集详情（含 `enclosureUrl`、所属播客 `podcast.pid`、`shownotes`、`payType`）及热评列表（含置顶、二级回复）+ `limited: true`。
-  - *阻塞原因*：同 `P3-02`，因 Cloudflare Workers 出站自带无法移除的 `CF-Worker` 请求头触发小宇宙 `403 Forbidden`。
+- [x] **P3-02** 打通小宇宙播客频道实时抓取（浏览器端 CORS 直连为主 + Worker `/api/xiaoyuzhou/podcast/:pid` 可选 `XYZ_RELAY_URL` 兜底）
+  - *验收标准*：校验 `pid` 格式；浏览器端直连 `https://www.xiaoyuzhoufm.com/podcast/:pid` 绕过 Worker `CF-Worker` 头限制并由 `xyzParser.js` 清洗返回频道元信息 + 最新 15 集列表 + `limited: true`；后端保留同构兜底接口。
+  - *验证命令*：真实浏览器环境（Playwright + Obscura 连接本地 `http://127.0.0.1:8787/`）实测浏览器 CORS `fetch` 返回 `200`、标题 `岩中花述`、完整 `15` 集。
+- [x] **P3-03** 打通小宇宙单集详情实时抓取（浏览器端 CORS 直连为主 + Worker `/api/xiaoyuzhou/episode/:eid` 可选 `XYZ_RELAY_URL` 兜底）
+  - *验收标准*：校验 `eid` 格式；浏览器端直连实时解析单集详情（含 `enclosureUrl`、所属播客 `podcast.pid`、`shownotes`、`payType`）及热评列表（含置顶、二级回复）+ `limited: true`。
+  - *验证命令*：真实浏览器环境实测 CORS `fetch` 返回 `200`、含 `enclosure.url`（`media.xyzcdn.net`）及 `21` 条热评。
 - [x] **P3-04** 实现 `GET /api/audio/download` (`src/handlers/download.js`)
   - *验收标准*：严格校验 `url` 为 `https://` 且 hostname 在白名单（`media.xyzcdn.net` / `*.xyzcdn.net` / `*.xiaoyuzhoufm.com`），非白名单返回 400/403；流式转发 `res.body`，返回安全清理后的 `Content-Disposition: attachment; filename*=UTF-8''...`。
   - *验证命令*：`wrangler dev` 实测 `HEAD /api/audio/download` 转发 `media.xyzcdn.net` 返回 `200`（`audio/mp4`, `75582408` bytes, `Accept-Ranges: bytes`, 完整 UTF-8 `Content-Disposition`）；`evil.com` 返回 `403`，`http://127.0.0.1` 返回 `400`；`test/parser.test.js` 安全校验单测全过。
@@ -143,4 +143,4 @@
 | 2026-11-17 | Phase 0 (`P0-01`~`P0-04`) | 完成 `aigc-gallery`、`xyzrank.com`（4 API）、`xiaoyuzhoufm.com`（SSR `__NEXT_DATA__` 与音频 CDN 头）实测调研；确认 4 项架构决策；创建 `AGENTS.md` 与 `CHECKLIST.md` | 已通过 curl / python 脚本实测上游真实返回 | 进入 Phase 1 |
 | 2026-11-17 | Phase 1 (`P1-01`~`P1-04`) | 初始化 `package.json`、`wrangler.toml`、`.gitignore`、`.dev.vars.example`、`migrations/0001_init.sql`、`src/index.js`、`src/utils/http.js`、`src/db/schema.js`、`public/index.html` 占位与 `test/schema.test.js` | `wrangler d1 migrations apply --local` 成功；`wrangler dev` `/api/health` 返回 200；`npm test` 4/4 通过 | 进入 Phase 2 |
 | 2026-11-17 | Phase 2 (`P2-01`~`P2-04`) | 实现 `src/db/sync.js` 分批接力状态机（`DEFAULT_MAX_PAGES_PER_BATCH=15`）、`src/handlers/admin.js`、`src/handlers/boards.js`、接入 `scheduled()` 并修复 `wrangler.toml` `run_worker_first` 放行 `/__scheduled`；新增 `test/sync.test.js` | `npm test` 10/10 通过；`wrangler dev --test-scheduled` 实测拉取 `xyzrank.com` 全量 9,132 条入 D1，`/api/boards/*` 搜索/分类/排序正常 | 进入 Phase 3 |
-| 2026-11-17 | Phase 3 (`P3-01`~`P3-04`) | 完成 `src/utils/parser.js`、`src/handlers/download.js`、`src/handlers/xiaoyuzhou.js`、`test/parser.test.js` | `npm test` 15/15 通过；`/api/audio/download` 在 `wrangler dev` 实测返回 200；**发现阻塞**：Cloudflare Workers/`workerd` 自动附加且不可删除的 `CF-Worker` 头被小宇宙官网拒绝（`403 Forbidden`） | 阻塞在 `P3-02` / `P3-03`，等待用户确认替代方案（外部轻量转发网关 / 迁移 Node.js 运行时 / 先继续前端） |
+| 2026-11-17 | Phase 3 (`P3-01`~`P3-04`) | 消除多余嵌套目录将仓库移至根路径；验证小宇宙官网支持浏览器 CORS 直连（`access-control-allow-origin` 动态回显 Origin），将解析器抽至前后端共享 `public/js/xyzParser.js`，后端保留 `XYZ_RELAY_URL` 可选兜底与 `/api/audio/download` | `npm test` 15/15 通过；真实浏览器（Playwright+Obscura）实测从 `http://127.0.0.1:8787/` CORS 请求小宇宙播客页与单集页均返回 `200` 并成功解析 | 进入 Phase 4 (`P4-01`~`P4-04`) |

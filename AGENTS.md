@@ -11,7 +11,8 @@
 - **技术形态**：Cloudflare Workers 全栈单仓库（参考 [icheer/aigc-gallery](https://github.com/icheer/aigc-gallery) 的无前端构建模式）。
 - **数据策略**：
   1. **首页 4 大榜单**由 Cloudflare Cron 每日 2 个时刻（北京时间 `08:00` 与 `20:00`，即 UTC `00:00` 与 `12:00`）启动同步，通过兼容 Cloudflare Free Plan 的**分批接力状态机**抓取 `xyzrank.com` 全量数据并存入 **Cloudflare D1 (SQLite)**，再由自建 `/api/boards/*` 对外提供搜索、排序与分页服务。
-  2. **播客频道页 & 单集播放页**均内置在本项目前端路由中（保留"去小宇宙官网"外链），所需数据（频道单集列表、单集音频地址、Shownotes、热评列表）由 Worker 后端**按需实时**携带浏览器 UA/Referer 请求小宇宙官网解析返回，**不做预取与数据库缓存**。
+  2. **播客频道页 & 单集播放页**均内置在本项目前端路由中（保留"去小宇宙官网"外链），所需数据（频道单集列表、单集音频地址、Shownotes、热评列表）采用**浏览器端直连 CORS `fetch` 为主 + 后端可选 `XYZ_RELAY_URL` 转发兜底**的实时按需方案（复用同一份纯函数解析器 `public/js/xyzParser.js`），**不做预取与数据库缓存**。
+  3. **音频下载**：因音频 CDN (`media.xyzcdn.net`) 无 CORS 响应头，由 Worker 提供白名单流式代理 `/api/audio/download` 实现按单集标题重命名下载。
 - **核心收听体验**：全局常驻迷你播放器 + 可展开全屏播控页（切换榜单/逛频道不断播）、向前 30 秒 / 向后 15 秒、倍速调节、循环模式（顺序 / 单曲 / 列表循环）、白名单流式音频下载、播放列表与拖拽调序、基于 `localStorage` 的断点续播进度保存与恢复。
 - **已知边界**：小宇宙官网网页端不提供逐字稿正文（仅 App 端有），本项目不实现字幕/逐字稿功能。
 
@@ -62,13 +63,14 @@ xyz-podcast/
 │   │   └── admin.js          # /api/admin/sync 手动同步与状态查询（ADMIN_KEY 鉴权）
 │   └── utils/
 │       ├── http.js           # JSON 响应、CORS/缓存头、参数与 ID 白名单校验
-│       └── parser.js         # __NEXT_DATA__ 提取与字段清洗（纯函数，便于单测）
+│       └── parser.js         # 转发导出 public/js/xyzParser.js（前后端共享单一解析器）
 ├── public/
 │   ├── index.html            # SPA 入口 HTML（引入 CDN Vue3 / Router / unpkg 依赖）
 │   ├── css/
 │   │   └── app.css           # CSS 变量、移动端卡片流、PC 适配、播放器与抽屉样式
 │   └── js/
-│       ├── api.js            # 前端 fetch 封装
+│       ├── xyzParser.js      # __NEXT_DATA__ 提取与字段清洗（前后端共享纯函数 ES 模块）
+│       ├── api.js            # 前端 fetch 封装（榜单 API + 小宇宙浏览器 CORS 直连 & 后端兜底）
 │       ├── storage.js        # localStorage 管理：播放列表队列、断点续播进度、倍速/循环设置
 │       ├── utils.js          # 时长格式化、时间戳识别转换、数字缩写（1.2万）
 │       ├── components/
@@ -109,11 +111,15 @@ xyz-podcast/
   - `id` *(MD5 内部 ID，**非**小宇宙 `pid`)*, `rank`, `name`, `logoURL`, `primaryGenreName`, `authorsText`, `trackCount`, `lastReleaseDate`, `lastReleaseDateDayCount`, `firstEpisodePostTime`, `activeRate`, `avgDuration` *(分钟)*, `avgPlayCount`, `avgUpdateFreq` *(**单位：小时**，展示时 `/ 24` 为天数)*, `avgCommentCount`, `avgInteractIndicator`, `avgOpenRate`, `links` *(数组，首项通常为 `{ name: "xyz", url: "https://www.xiaoyuzhoufm.com/podcast/<pid>" }`)*。
   - 入库提取：从 `links` 查找 `name === "xyz"` 或 URL 匹配 `/\/podcast\/([a-zA-Z0-9]+)/` 提取小宇宙 `pid`。
 
-### 3.2 `xiaoyuzhoufm.com` 实时抓取契约
+### 3.2 `xiaoyuzhoufm.com` 实时抓取契约（浏览器 CORS 直连 + Worker 可选转发）
 
-> ⚠️ **2026-11-17 实测阻塞发现**：Cloudflare Workers（含本地 `workerd` 与线上边缘节点）在所有出站 `fetch()` 上由平台层强制注入 `CF-Worker` 请求头，且 Worker 代码无法删除/屏蔽该请求头；而 `www.xiaoyuzhoufm.com`（`Potato-Server` / OpenResty）明确对携带 `cf-worker` 请求头的请求返回 **`HTTP 403 Forbidden`**（同一环境下不含该头的 `curl` 与 Node `fetch()` 均返回 `200 OK`）。音频 CDN `media.xyzcdn.net` 则不受 `cf-worker` 头影响，可直接在 Worker 中正常流式代理下载。后续需根据用户决策采用**非 Worker 运行时**或**外部轻量转发网关（不带 `CF-Worker` 头）**解决小宇宙页面抓取。
-
-- Worker 请求小宇宙官网时携带以下请求头：
+> ✅ **2026-11-17 实测结论与最终方案**：
+> - **Cloudflare Workers 出站限制**：`workerd` 与线上 Workers 平台会在所有出站 `fetch()` 上强制注入 `CF-Worker` 请求头且无法在 Worker 代码中移除；`www.xiaoyuzhoufm.com`（`Potato-Server` / OpenResty）会对携带 `cf-worker` 的请求返回 **`HTTP 403 Forbidden`**。
+> - **浏览器端 CORS 直连已实测打通**：经 `curl` 与本地 Playwright + Obscura 真实浏览器（从 `http://127.0.0.1:8787/` 页面上下文发起 `fetch(..., { mode: "cors", credentials: "omit" })`）实测，`www.xiaoyuzhoufm.com` 对任意 `Origin` 动态回显 `access-control-allow-origin: <Origin>`（且简单 `GET` 请求无 `OPTIONS` 预检、无 `CF-Worker` 头），直接返回 **`HTTP 200 OK`** 与完整 `__NEXT_DATA__`（频道 15 集、单集 `enclosure.url`、`shownotes`、21 条热评）。
+> - **落地策略**：
+>   1. **主通道**：前端在用户浏览器直接 `fetch("https://www.xiaoyuzhoufm.com/podcast/:pid")` 与 `/episode/:eid`，交由共享纯函数模块 `public/js/xyzParser.js` 提取解析。
+>   2. **兜底通道**：Worker 后端保留 `/api/xiaoyuzhou/podcast/:pid` 与 `/episode/:eid`（支持配置可选 `XYZ_RELAY_URL` / `XYZ_RELAY_TOKEN` 环境变量，或在非 CF 运行时直接请求）。
+>   3. **音频 CDN (`media.xyzcdn.net`)**：不受 `cf-worker` 头影响但缺少 `access-control-allow-origin`，因此音频播放直接 `<audio src="https://media.xyzcdn.net/...">`，下载统一走 Worker `/api/audio/download`。
   - `User-Agent`: 现代浏览器 UA（如 Chrome 桌面/移动 UA）
   - `Referer`: `https://www.xiaoyuzhoufm.com/`
   - `Accept`: `text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8`
@@ -268,13 +274,9 @@ npm run deploy               # npx wrangler deploy
 ## 9. 当前进度与交接快照
 
 - **最后更新**：2026-11-17
-- **当前阶段**：`Phase 3 部分完成并在 P3-02/P3-03 遇到平台层阻塞（等待用户确认方案）`
+- **当前阶段**：`Phase 3 已解除阻塞并完成，目录已扁平化至仓库根路径，正在推进 Phase 4 — 前端骨架与首页 4 榜单`
 - **已完成事项**：
-  - `Phase 0`：完成上游接口实测调研、架构确认与交接规范建立。
-  - `Phase 1`：完成工程脚手架、D1 schema 迁移、`src/index.js` 与 `src/db/schema.js`。
-  - `Phase 2`：完成 `src/db/sync.js` 分批接力同步状态机（本地 D1 已同步 9,132 条全量榜单数据）、`src/handlers/admin.js`、`src/handlers/boards.js` 与 `scheduled()` Cron 接入。
-  - `Phase 3` (`P3-01`, `P3-04`)：完成 `src/utils/parser.js`（`__NEXT_DATA__` 提取与清洗）、`src/handlers/download.js`（白名单流式音频下载代理已在 `wrangler dev` 实测通过）与 `src/handlers/xiaoyuzhou.js`；`npm test` 15/15 通过。
-- **当前阻塞与实测结论**：
-  - `P3-02`（`/api/xiaoyuzhou/podcast/:pid`）与 `P3-03`（`/api/xiaoyuzhou/episode/:eid`）在 `wrangler dev` (`workerd`) 下均收到小宇宙 `403 Forbidden`。
-  - **已定位根因**：`workerd` 与 Cloudflare Workers 生产环境会在所有出站 `fetch()` 强制附带 `CF-Worker` 请求头（Cloudflare 文档确认不可在 Worker 脚本中去除），`www.xiaoyuzhoufm.com` 对含 `cf-worker` 头的请求直接返回 `403`（同机器下无该头的 `curl` 与 Node `fetch()` 均正常返回 `200`）。
-- **下一位 Agent 的精确起点**：待用户决定采用 **方案 A（Cloudflare Workers + 外部轻量转发网关如 Vercel/Deno/VPS `XYZ_RELAY_URL`）**、**方案 B（整体迁移至 Node.js + SQLite）** 或 **方案 C（先完成 Phase 4–6 前端与播放器）** 后继续推进。
+  - 消除多余的 `xyz-podcast/xyz-podcast` 嵌套目录，将全部项目文件通过 `git mv` 移至仓库根目录 `/home/projects/_ai-apps/xyz-podcast/`。
+  - `Phase 0` ~ `Phase 2`：D1 迁移、`src/db/sync.js` 分批接力同步状态机（本地 D1 已同步 9,132 条全量榜单数据）、`scheduled()` Cron、`/api/admin/sync*` 与 `/api/boards/*`。
+  - `Phase 3`：验证浏览器端 CORS 直连 `www.xiaoyuzhoufm.com` 可用（在 `http://127.0.0.1:8787/` 页面上下文实测返回 `200` 与完整 `__NEXT_DATA__`）；将解析器沉淀为前后端共享纯函数 `public/js/xyzParser.js`（`src/utils/parser.js` 重导出），后端保留 `/api/xiaoyuzhou/*` 可选 `XYZ_RELAY_URL` 兜底；`/api/audio/download` 已在 `wrangler dev` 实测通过；`npm test` 15/15 通过。
+- **下一位 Agent 的精确起点**：继续实施 `CHECKLIST.md` 的 **`Phase 4`（`P4-01` ~ `P4-04`）** 及后续 `Phase 5` ~ `Phase 7`。
