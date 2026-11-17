@@ -1640,7 +1640,7 @@ button:disabled { opacity: .45; cursor: default; }
 .card-subtitle { flex: 0 1 auto; max-width: 100%; font-size: 13px; }
 .genre-tag { background: var(--surface-soft); color: var(--text-secondary); border-radius: 5px; font-size: 10px; }
 .card-footer-row { border-top: 0; margin-top: 5px; padding-top: 0; }
-.card-stats-line { gap: 3px 8px; font-size: 11px; }
+.card-stats-line { margin-inline-start: 28px; gap: 3px 8px; font-size: 11px; }
 .pill-play-btn { height: 28px; padding: 0 8px; border-radius: 6px; background: transparent; }
 .pill-play-btn.active { background: var(--accent-soft); color: var(--accent); }
 .circle-queue-btn { width: 28px; height: 28px; border: 0; border-radius: 0; background: transparent; }
