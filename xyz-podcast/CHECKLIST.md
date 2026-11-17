@@ -39,24 +39,24 @@
 
 ## Phase 2：xyzrank 分批接力同步 & 榜单 API
 
-- [ ] **P2-01** 实现 `xyzrank` 字段解析与校验工具（纯函数）及单元测试 `test/sync.test.js`
+- [x] **P2-01** 实现 `xyzrank` 字段解析与校验工具（纯函数）及单元测试 `test/sync.test.js`
   - *验收标准*：正确从 `link` 提取 `eid`、从 `links` 提取小宇宙 `pid`、计算单集 `interactiveRate`、防御缺省字段。
-  - *验证命令*：`npm test` 全部通过。
-- [ ] **P2-02** 实现兼容 Free Plan 的分批接力状态机 `src/db/sync.js`
+  - *验证命令*：`npm test` 全部通过（10/10）。
+- [x] **P2-02** 实现兼容 Free Plan 的分批接力状态机 `src/db/sync.js`
   - *验收标准*：
-    - 每次调用控制外部 `fetch()` `<= 30` 次（远低于 Free Plan 50 上限）。
+    - 每次调用控制外部 `fetch()` `<= 30` 次（默认 `DEFAULT_MAX_PAGES_PER_BATCH = 15`，远低于 Free Plan 50 上限）。
     - 按 `episodes -> new-episodes -> new-podcasts -> podcasts` 顺序分批拉取（`limit=100`）并批量 `UPSERT` 到 D1。
     - 维护 `sync_runs` 游标与防重入锁 `locked_until`；同 slot 已 `completed` 时直接快速返回（0 次外部请求）。
     - 整轮完成后原子切换 `app_state.active_sync_version` 并清理过期旧版本（保留最近 1 个历史版本）。
-  - *验证命令*：构造 mock fetch 跑通 `test/sync.test.js` 状态机多轮接力测试。
-- [ ] **P2-03** 接入 `scheduled()` Cron 与受保护的管理端手动同步接口 `src/handlers/admin.js`
-  - *验收标准*：实现 `POST /api/admin/sync`（校验 `X-Admin-Key === env.ADMIN_KEY`）与 `GET /api/admin/sync/status`；`scheduled()` 接入状态机并在 `ctx.waitUntil()` 执行。
-  - *验证命令*：使用 `npx wrangler dev --test-scheduled` 调用 `/__scheduled` 与 `POST /api/admin/sync` 多批跑完 9,100+ 条真实入库，验证 D1 表内 4 榜单条目数与 `xyzrank.com` 一致。
-- [ ] **P2-04** 实现榜单元信息与查询接口 `src/handlers/boards.js`
+  - *验证命令*：`test/sync.test.js` 多轮接力、版本切换、旧版本清理、已完成跳过测试全部通过。
+- [x] **P2-03** 接入 `scheduled()` Cron 与受保护的管理端手动同步接口 `src/handlers/admin.js`
+  - *验收标准*：实现 `POST /api/admin/sync`（校验 `X-Admin-Key === env.ADMIN_KEY`）与 `GET /api/admin/sync/status`；`scheduled()` 接入状态机并在 `ctx.waitUntil()` 执行；`wrangler.toml` `run_worker_first` 包含 `/__scheduled`。
+  - *验证命令*：`wrangler dev --test-scheduled` 实测未鉴权返回 `401`、`/__scheduled` 返回 `200 Ran scheduled event`、4 批次同步真实 `xyzrank.com` 共 `9,132` 条（791+19+131+8191）完整入库。
+- [x] **P2-04** 实现榜单元信息与查询接口 `src/handlers/boards.js`
   - *验收标准*：
     - `GET /api/boards/meta` 返回当前 `syncVersion`、各榜单总数/同步时间及可选分类列表（`primary_genre` 去重）。
     - `GET /api/boards/:board` 支持 `offset`、`limit` (`<= 100`)、`q`（关键词匹配标题/播客名/主播）、`genre`、`sort`（严格白名单映射 SQL 列）、`dir` (`asc|desc`)，返回 `{ board, items, total, offset, limit, medianValues, syncVersion, updatedAt }`。
-  - *验证命令*：`curl` 实测 4 个榜单的分页、关键词搜索、分类过滤与多字段排序返回正确。
+  - *验证命令*：`wrangler dev` 实测 `meta` 与 4 榜单分页、关键词搜索（`q=AI` -> 43条）、分类过滤（`犯罪纪实` -> 31条）与排序均正确。
 
 ---
 
@@ -141,4 +141,5 @@
 | 日期 | 阶段/任务 | 完成/变更摘要 | 验证状态 | 遗留/下一步 |
 |---|---|---|---|---|
 | 2026-11-17 | Phase 0 (`P0-01`~`P0-04`) | 完成 `aigc-gallery`、`xyzrank.com`（4 API）、`xiaoyuzhoufm.com`（SSR `__NEXT_DATA__` 与音频 CDN 头）实测调研；确认 4 项架构决策；创建 `AGENTS.md` 与 `CHECKLIST.md` | 已通过 curl / python 脚本实测上游真实返回 | 进入 Phase 1 |
-| 2026-11-17 | Phase 1 (`P1-01`~`P1-04`) | 初始化 `package.json`、`wrangler.toml`、`.gitignore`、`.dev.vars.example`、`migrations/0001_init.sql`、`src/index.js`、`src/utils/http.js`、`src/db/schema.js`、`public/index.html` 占位与 `test/schema.test.js` | `wrangler d1 migrations apply --local` 成功；`wrangler dev` `/api/health` 返回 200；`npm test` 4/4 通过 | 下一步执行 Phase 2 (`P2-01`~`P2-04`) |
+| 2026-11-17 | Phase 1 (`P1-01`~`P1-04`) | 初始化 `package.json`、`wrangler.toml`、`.gitignore`、`.dev.vars.example`、`migrations/0001_init.sql`、`src/index.js`、`src/utils/http.js`、`src/db/schema.js`、`public/index.html` 占位与 `test/schema.test.js` | `wrangler d1 migrations apply --local` 成功；`wrangler dev` `/api/health` 返回 200；`npm test` 4/4 通过 | 进入 Phase 2 |
+| 2026-11-17 | Phase 2 (`P2-01`~`P2-04`) | 实现 `src/db/sync.js` 分批接力状态机（`DEFAULT_MAX_PAGES_PER_BATCH=15`）、`src/handlers/admin.js`、`src/handlers/boards.js`、接入 `scheduled()` 并修复 `wrangler.toml` `run_worker_first` 放行 `/__scheduled`；新增 `test/sync.test.js` | `npm test` 10/10 通过；`wrangler dev --test-scheduled` 实测拉取 `xyzrank.com` 全量 9,132 条入 D1，`/api/boards/*` 搜索/分类/排序正常 | 下一步执行 Phase 3 (`P3-01`~`P3-04`) |

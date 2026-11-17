@@ -266,9 +266,10 @@ npm run deploy               # npx wrangler deploy
 ## 9. 当前进度与交接快照
 
 - **最后更新**：2026-11-17
-- **当前阶段**：`Phase 1 已完成，即将进入 Phase 2 — xyzrank 分批接力同步 & 榜单查询 API`
+- **当前阶段**：`Phase 2 已完成，即将进入 Phase 3 — 小宇宙实时代理 & 流式音频下载`
 - **已完成事项**：
   - `Phase 0`：完成上游接口实测调研、架构确认与交接规范建立。
-  - `Phase 1`：初始化 `package.json` (`wrangler@^4.0.0`)、`.gitignore`、`.dev.vars.example`、`wrangler.toml`、`migrations/0001_init.sql`（5 张 D1 表及索引已本地迁移验证）、`src/index.js`、`src/utils/http.js`、`src/db/schema.js`、占位 `public/index.html` 与 `test/schema.test.js`（4/4 单测通过）。
-- **当前代码现状**：本地 D1 已应用 `0001_init.sql`，`/api/health` 与静态资产兜底已实测通过。
-- **下一位 Agent 的精确起点**：从 `CHECKLIST.md` 的 **`P2-01`** 开始——实现 `xyzrank` 数据解析、分批接力状态机 (`src/db/sync.js`)、Cron / Admin 同步接口及 `/api/boards/*` 查询接口。
+  - `Phase 1`：完成工程脚手架、D1 schema 迁移、`src/index.js` 与 `src/db/schema.js`（4/4 单测通过）。
+  - `Phase 2`：实现 `src/db/sync.js` 分批接力同步状态机（每批默认 15 页 `<= 30` subrequest，已完成 9,132 条全量入库实测）、`src/handlers/admin.js`、`src/handlers/boards.js` 与 `scheduled()` Cron 接入；`npm test` 10/10 通过。
+- **当前代码现状**：本地 D1 已同步完整 4 个榜单 9,132 条数据，`/api/boards/meta`、`/api/boards/:board`、`/api/admin/sync*` 均已验证可用。
+- **下一位 Agent 的精确起点**：从 `CHECKLIST.md` 的 **`P3-01`** 开始——实现 `src/utils/parser.js`、`src/handlers/xiaoyuzhou.js` 与 `src/handlers/download.js`。
