@@ -1,6 +1,8 @@
 import { runSyncBatch } from "./db/sync.js";
 import { handleAdminSync, handleAdminSyncStatus } from "./handlers/admin.js";
 import { handleBoardQuery, handleBoardsMeta } from "./handlers/boards.js";
+import { handleAudioDownload } from "./handlers/download.js";
+import { handleEpisodeDetail, handlePodcastDetail } from "./handlers/xiaoyuzhou.js";
 import { errorJson, json } from "./utils/http.js";
 
 export default {
@@ -56,6 +58,20 @@ async function handleApi(request, env, _ctx, url) {
   const boardMatch = path.match(/^\/api\/boards\/([a-z-]+)$/);
   if (boardMatch && method === "GET") {
     return handleBoardQuery(boardMatch[1], url, env);
+  }
+
+  const podcastMatch = path.match(/^\/api\/xiaoyuzhou\/podcast\/([^/]+)$/);
+  if (podcastMatch && method === "GET") {
+    return handlePodcastDetail(podcastMatch[1]);
+  }
+
+  const episodeMatch = path.match(/^\/api\/xiaoyuzhou\/episode\/([^/]+)$/);
+  if (episodeMatch && method === "GET") {
+    return handleEpisodeDetail(episodeMatch[1]);
+  }
+
+  if (path === "/api/audio/download" && (method === "GET" || method === "HEAD")) {
+    return handleAudioDownload(request, url);
   }
 
   if (path === "/api/admin/sync" && method === "POST") {

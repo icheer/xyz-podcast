@@ -111,6 +111,8 @@ xyz-podcast/
 
 ### 3.2 `xiaoyuzhoufm.com` 实时抓取契约
 
+> ⚠️ **2026-11-17 实测阻塞发现**：Cloudflare Workers（含本地 `workerd` 与线上边缘节点）在所有出站 `fetch()` 上由平台层强制注入 `CF-Worker` 请求头，且 Worker 代码无法删除/屏蔽该请求头；而 `www.xiaoyuzhoufm.com`（`Potato-Server` / OpenResty）明确对携带 `cf-worker` 请求头的请求返回 **`HTTP 403 Forbidden`**（同一环境下不含该头的 `curl` 与 Node `fetch()` 均返回 `200 OK`）。音频 CDN `media.xyzcdn.net` 则不受 `cf-worker` 头影响，可直接在 Worker 中正常流式代理下载。后续需根据用户决策采用**非 Worker 运行时**或**外部轻量转发网关（不带 `CF-Worker` 头）**解决小宇宙页面抓取。
+
 - Worker 请求小宇宙官网时携带以下请求头：
   - `User-Agent`: 现代浏览器 UA（如 Chrome 桌面/移动 UA）
   - `Referer`: `https://www.xiaoyuzhoufm.com/`
@@ -266,10 +268,13 @@ npm run deploy               # npx wrangler deploy
 ## 9. 当前进度与交接快照
 
 - **最后更新**：2026-11-17
-- **当前阶段**：`Phase 2 已完成，即将进入 Phase 3 — 小宇宙实时代理 & 流式音频下载`
+- **当前阶段**：`Phase 3 部分完成并在 P3-02/P3-03 遇到平台层阻塞（等待用户确认方案）`
 - **已完成事项**：
   - `Phase 0`：完成上游接口实测调研、架构确认与交接规范建立。
-  - `Phase 1`：完成工程脚手架、D1 schema 迁移、`src/index.js` 与 `src/db/schema.js`（4/4 单测通过）。
-  - `Phase 2`：实现 `src/db/sync.js` 分批接力同步状态机（每批默认 15 页 `<= 30` subrequest，已完成 9,132 条全量入库实测）、`src/handlers/admin.js`、`src/handlers/boards.js` 与 `scheduled()` Cron 接入；`npm test` 10/10 通过。
-- **当前代码现状**：本地 D1 已同步完整 4 个榜单 9,132 条数据，`/api/boards/meta`、`/api/boards/:board`、`/api/admin/sync*` 均已验证可用。
-- **下一位 Agent 的精确起点**：从 `CHECKLIST.md` 的 **`P3-01`** 开始——实现 `src/utils/parser.js`、`src/handlers/xiaoyuzhou.js` 与 `src/handlers/download.js`。
+  - `Phase 1`：完成工程脚手架、D1 schema 迁移、`src/index.js` 与 `src/db/schema.js`。
+  - `Phase 2`：完成 `src/db/sync.js` 分批接力同步状态机（本地 D1 已同步 9,132 条全量榜单数据）、`src/handlers/admin.js`、`src/handlers/boards.js` 与 `scheduled()` Cron 接入。
+  - `Phase 3` (`P3-01`, `P3-04`)：完成 `src/utils/parser.js`（`__NEXT_DATA__` 提取与清洗）、`src/handlers/download.js`（白名单流式音频下载代理已在 `wrangler dev` 实测通过）与 `src/handlers/xiaoyuzhou.js`；`npm test` 15/15 通过。
+- **当前阻塞与实测结论**：
+  - `P3-02`（`/api/xiaoyuzhou/podcast/:pid`）与 `P3-03`（`/api/xiaoyuzhou/episode/:eid`）在 `wrangler dev` (`workerd`) 下均收到小宇宙 `403 Forbidden`。
+  - **已定位根因**：`workerd` 与 Cloudflare Workers 生产环境会在所有出站 `fetch()` 强制附带 `CF-Worker` 请求头（Cloudflare 文档确认不可在 Worker 脚本中去除），`www.xiaoyuzhoufm.com` 对含 `cf-worker` 头的请求直接返回 `403`（同机器下无该头的 `curl` 与 Node `fetch()` 均正常返回 `200`）。
+- **下一位 Agent 的精确起点**：待用户决定采用 **方案 A（Cloudflare Workers + 外部轻量转发网关如 Vercel/Deno/VPS `XYZ_RELAY_URL`）**、**方案 B（整体迁移至 Node.js + SQLite）** 或 **方案 C（先完成 Phase 4–6 前端与播放器）** 后继续推进。
