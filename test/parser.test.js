@@ -1,7 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { extractNextData, parseEpisodePage, parsePodcastPage } from "../src/utils/parser.js";
-import { sanitizeDownloadFilename, validateAudioUrl } from "../src/handlers/download.js";
 
 function wrapNextHtml(pageProps) {
   const payload = JSON.stringify({ props: { pageProps } });
@@ -92,23 +91,4 @@ test("parseEpisodePage extracts episode, podcast link, shownotes, and nested com
   assert.equal(parsed.comments[0].pinned, true);
   assert.equal(parsed.comments[0].replies[0].replyToNickname, "主播");
   assert.equal(parsed.limited, true);
-});
-
-test("validateAudioUrl enforces strict HTTPS allowlist", () => {
-  assert.equal(validateAudioUrl("https://media.xyzcdn.net/a/b.m4a").ok, true);
-  assert.equal(validateAudioUrl("https://cdn.xiaoyuzhoufm.com/a/b.mp3").ok, true);
-  assert.equal(validateAudioUrl("http://media.xyzcdn.net/a/b.m4a").ok, false);
-  assert.equal(validateAudioUrl("https://evil.com/a/b.m4a").ok, false);
-  assert.equal(validateAudioUrl("https://127.0.0.1/a.m4a").ok, false);
-  assert.equal(validateAudioUrl("https://user:pass@media.xyzcdn.net/a.m4a").ok, false);
-  assert.equal(validateAudioUrl("https://media.xyzcdn.net:8443/a.m4a").ok, false);
-  assert.equal(validateAudioUrl("https://xyzcdn.net.evil.com/a.m4a").ok, false);
-});
-
-test("sanitizeDownloadFilename preserves Chinese titles and cleans unsafe characters", () => {
-  assert.equal(
-    sanitizeDownloadFilename('Vol. 1: 测试/单集?标题', "/path/audio.m4a"),
-    "Vol. 1 测试 单集 标题.m4a"
-  );
-  assert.equal(sanitizeDownloadFilename("", "/path/file.mp3"), "podcast-episode.mp3");
 });

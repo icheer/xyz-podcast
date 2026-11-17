@@ -138,3 +138,167 @@ export function renderShownotesHtml(rawHtml) {
   }
   return injectTimestampButtons(clean);
 }
+
+/**
+ * Shared Vue Options API mixin for <keep-alive> views to preserve vertical scroll position
+ * across detail/back navigation without losing state or triggering redundant reloads.
+ */
+export const scrollKeeperMixin = {
+  data() {
+    return {
+      isKeepAliveActive: false,
+      savedScrollY: 0,
+      _scrollKeeperFn: null,
+    };
+  },
+  mounted() {
+    this.isKeepAliveActive = true;
+    if (typeof window !== "undefined") {
+      window.scrollTo(0, 0);
+      this.attachScrollKeeper();
+    }
+  },
+  activated() {
+    this.isKeepAliveActive = true;
+    const targetY = this.savedScrollY || 0;
+    if (typeof this.onKeepAliveActivated === "function") {
+      const handled = this.onKeepAliveActivated(targetY);
+      if (handled) return;
+    }
+    if (typeof window !== "undefined") {
+      this.$nextTick(() => {
+        requestAnimationFrame(() => {
+          window.scrollTo(0, targetY);
+          this.attachScrollKeeper();
+          if (typeof this.onAfterScrollRestore === "function") {
+            this.onAfterScrollRestore(targetY);
+          }
+        });
+      });
+    }
+  },
+  deactivated() {
+    this.isKeepAliveActive = false;
+    this.detachScrollKeeper();
+    if (typeof this.onKeepAliveDeactivated === "function") {
+      this.onKeepAliveDeactivated();
+    }
+  },
+  beforeUnmount() {
+    this.isKeepAliveActive = false;
+    this.detachScrollKeeper();
+  },
+  beforeRouteLeave() {
+    if (typeof window !== "undefined") {
+      this.savedScrollY = window.scrollY || 0;
+    }
+  },
+  methods: {
+    attachScrollKeeper() {
+      if (this._scrollKeeperFn || typeof window === "undefined") return;
+      this._scrollKeeperFn = () => {
+        if (this.isKeepAliveActive) {
+          this.savedScrollY = window.scrollY || 0;
+        }
+      };
+      window.addEventListener("scroll", this._scrollKeeperFn, { passive: true });
+    },
+    detachScrollKeeper() {
+      if (!this._scrollKeeperFn || typeof window === "undefined") return;
+      window.removeEventListener("scroll", this._scrollKeeperFn);
+      this._scrollKeeperFn = null;
+    },
+  },
+};
+
+/**
+ * Compute visible [startIndex, endIndex) window and spacer heights for a variable-height virtual list.
+ * Supports Map or plain object/array heightCache keyed by item index.
+ */
+export function computeVirtualWindow({
+  count,
+  scrollRelTop = 0,
+  viewportHeight = 800,
+  overscanPx = 500,
+  defaultHeight = 132,
+  heightCache = null,
+}) {
+  const n = Math.max(0, Number(count) || 0);
+  if (n === 0) {
+    return {
+      startIndex: 0,
+      endIndex: 0,
+      topSpacerPx: 0,
+      bottomSpacerPx: 0,
+      totalHeight: 0,
+    };
+  }
+
+  const est = Math.max(24, Number(defaultHeight) || 132);
+  const overscan = Math.max(0, Number(overscanPx) || 0);
+  const viewH = Math.max(0, Number(viewportHeight) || 0);
+  const relTop = Number.isFinite(Number(scrollRelTop)) ? Number(scrollRelTop) : 0;
+
+  const getItemHeight = (idx) => {
+    if (!heightCache) return est;
+    const v =
+      typeof heightCache.get === "function"
+        ? heightCache.get(idx)
+        : heightCache[idx];
+    return typeof v === "number" && Number.isFinite(v) && v > 0 ? v : est;
+  };
+
+  const offsets = new Float64Array(n + 1);
+  for (let i = 0; i < n; i += 1) {
+    offsets[i + 1] = offsets[i] + getItemHeight(i);
+  }
+  const totalHeight = offsets[n];
+
+  const windowTop = Math.max(0, relTop - overscan);
+  const windowBottom = Math.min(totalHeight, relTop + viewH + overscan);
+
+  if (windowBottom <= windowTop) {
+    if (windowTop >= totalHeight) {
+      return {
+        startIndex: n,
+        endIndex: n,
+        topSpacerPx: Math.round(totalHeight),
+        bottomSpacerPx: 0,
+        totalHeight: Math.round(totalHeight),
+      };
+    }
+    return {
+      startIndex: 0,
+      endIndex: 0,
+      topSpacerPx: 0,
+      bottomSpacerPx: Math.round(totalHeight),
+      totalHeight: Math.round(totalHeight),
+    };
+  }
+
+  let lo = 0;
+  let hi = n - 1;
+  let startIndex = n - 1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (offsets[mid + 1] > windowTop) {
+      startIndex = mid;
+      hi = mid - 1;
+    } else {
+      lo = mid + 1;
+    }
+  }
+
+  let endIndex = startIndex + 1;
+  while (endIndex < n && offsets[endIndex] < windowBottom) {
+    endIndex += 1;
+  }
+
+  return {
+    startIndex,
+    endIndex,
+    topSpacerPx: Math.round(offsets[startIndex]),
+    bottomSpacerPx: Math.round(Math.max(0, totalHeight - offsets[endIndex])),
+    totalHeight: Math.round(totalHeight),
+  };
+}

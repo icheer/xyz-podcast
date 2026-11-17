@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="48" y1="32" x2="464" y2="480" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#F26338"/>
+      <stop offset="100%" stop-color="#D14017"/>
+    </linearGradient>
+    <linearGradient id="glow" x1="256" y1="70" x2="256" y2="430" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.22"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <rect x="16" y="16" width="480" height="480" rx="98" stroke="url(#glow)" stroke-width="4"/>
+  <!-- Outer subtle sound arcs -->
+  <path d="M126 266C126 194.2 184.2 136 256 136C327.8 136 386 194.2 386 266" stroke="#FFFFFF" stroke-opacity="0.32" stroke-width="18" stroke-linecap="round"/>
+  <!-- Headphones arch & earcups -->
+  <path d="M116 286V264C116 186.68 178.68 124 256 124C333.32 124 396 186.68 396 264V286" stroke="#FFFFFF" stroke-width="32" stroke-linecap="round"/>
+  <rect x="96" y="256" width="66" height="122" rx="33" fill="#FFFFFF"/>
+  <rect x="350" y="256" width="66" height="122" rx="33" fill="#FFFFFF"/>
+  <!-- Play waveform center -->
+  <rect x="206" y="278" width="22" height="68" rx="11" fill="#FFFFFF" fill-opacity="0.92"/>
+  <rect x="245" y="246" width="22" height="132" rx="11" fill="#FFFFFF"/>
+  <rect x="284" y="278" width="22" height="68" rx="11" fill="#FFFFFF" fill-opacity="0.92"/>
+</svg>

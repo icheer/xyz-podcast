@@ -75,6 +75,7 @@ export default {
       aria-label="播放列表"
     >
       <div class="drawer-panel">
+        <div class="drawer-grabber" aria-hidden="true"></div>
         <div class="drawer-header">
           <div style="display:flex;align-items:center;gap:8px;">
             <app-icon name="list-music" :size="18" />
@@ -101,8 +102,9 @@ export default {
           </div>
         </div>
 
-        <div v-if="player.queue.length === 0" class="drawer-body" style="justify-content:center;align-items:center;color:var(--text-muted);padding:40px 16px;">
-          播放列表为空，在榜单或频道页点击「+」即可加入队列。
+        <div v-if="player.queue.length === 0" class="queue-empty">
+          <app-icon name="list-music" :size="28" />
+          <p>播放列表还是空的<br />在榜单或频道页点击「+」即可加入队列</p>
         </div>
 
         <div v-else ref="queueList" class="drawer-body">
@@ -116,14 +118,14 @@ export default {
               <app-icon name="grip-vertical" :size="16" />
             </span>
 
-            <img class="cover-thumb" style="width:40px;height:40px;border-radius:8px;" :src="item.image" :alt="item.title" />
+            <img class="cover-thumb" style="width:42px;height:42px;border-radius:9px;" :src="item.image" :alt="item.title" />
 
             <div class="queue-info" @click="playerActions.playTrack(item)">
               <div class="queue-title">{{ item.title }}</div>
               <div class="queue-sub tabular">
                 <span>{{ item.podcastName || '小宇宙播客' }}</span>
-                <span v-if="item.duration">{{ formatDurationSeconds(item.duration) }}</span>
-                <span v-if="progressText(item)" style="color:var(--accent);font-weight:600;">{{ progressText(item) }}</span>
+                <span v-if="item.duration"> · {{ formatDurationSeconds(item.duration) }}</span>
+                <span v-if="progressText(item)" style="color:var(--accent);font-weight:600;"> · {{ progressText(item) }}</span>
               </div>
             </div>
 

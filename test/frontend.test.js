@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  computeVirtualWindow,
   formatCount,
   formatDurationSeconds,
   formatMinutes,
@@ -100,4 +101,45 @@ test("storage progress enforces 200-entry eviction and resume thresholds", () =>
   assert.equal(resolveResumeSeconds({ currentTime: 597, duration: 600, finished: false }, 600), 0);
   assert.equal(resolveResumeSeconds({ currentTime: 120, duration: 600, finished: true }, 600), 0);
   assert.equal(resolveResumeSeconds({ currentTime: 120, duration: 600, finished: false }, 600), 120);
+});
+
+test("computeVirtualWindow slices large lists cleanly with custom height caches", () => {
+  assert.deepEqual(computeVirtualWindow({ count: 0, scrollRelTop: 100, viewportHeight: 800 }), {
+    startIndex: 0,
+    endIndex: 0,
+    topSpacerPx: 0,
+    bottomSpacerPx: 0,
+    totalHeight: 0,
+  });
+
+  // 8,191 items (podcasts board full size) mid-scroll
+  const win = computeVirtualWindow({
+    count: 8191,
+    scrollRelTop: 50000,
+    viewportHeight: 700,
+    overscanPx: 400,
+    defaultHeight: 100,
+  });
+  assert.equal(win.startIndex, 496);
+  assert.equal(win.endIndex, 511);
+  assert.equal(win.topSpacerPx, 49600);
+  assert.equal(win.totalHeight, 819100);
+  assert.equal(win.bottomSpacerPx, 819100 - 51100);
+
+  // Mixed cached heights preserve exact spacer math
+  const cache = { 0: 150, 1: 200, 2: 80 };
+  const varWin = computeVirtualWindow({
+    count: 5,
+    scrollRelTop: 360,
+    viewportHeight: 120,
+    overscanPx: 0,
+    defaultHeight: 100,
+    heightCache: cache,
+  });
+  // offsets: [0, 150, 350, 430, 530, 630]; window [360, 480) -> items 2 (350..430) & 3 (430..530)
+  assert.equal(varWin.startIndex, 2);
+  assert.equal(varWin.endIndex, 4);
+  assert.equal(varWin.topSpacerPx, 350);
+  assert.equal(varWin.bottomSpacerPx, 100);
+  assert.equal(varWin.totalHeight, 630);
 });

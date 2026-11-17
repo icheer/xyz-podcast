@@ -1,15 +1,22 @@
 import { fetchPodcastDetail } from "../api.js";
-import { formatCount, formatDateTime, formatDurationSeconds } from "../utils.js";
+import {
+  formatCount,
+  formatDateTime,
+  formatDurationSeconds,
+  scrollKeeperMixin,
+} from "../utils.js";
 import AppIcon from "./AppIcon.js";
 
 export default {
   name: "PodcastView",
   components: { AppIcon },
+  mixins: [scrollKeeperMixin],
   inject: ["player", "playerActions"],
   data() {
     return {
       loading: true,
       errorMsg: "",
+      loadedPid: "",
       podcast: null,
       episodes: [],
       sourceUrl: "",
@@ -25,8 +32,10 @@ export default {
   watch: {
     pid: {
       immediate: true,
-      handler() {
-        this.loadData();
+      handler(newPid) {
+        if (newPid && newPid !== this.loadedPid) {
+          this.loadData();
+        }
       },
     },
   },
@@ -40,6 +49,7 @@ export default {
       this.errorMsg = "";
       try {
         const res = await fetchPodcastDetail(this.pid);
+        this.loadedPid = this.pid;
         this.podcast = res.podcast;
         this.episodes = res.episodes || [];
         this.sourceUrl = res.sourceUrl || `https://www.xiaoyuzhoufm.com/podcast/${this.pid}`;
@@ -123,7 +133,9 @@ export default {
         </a>
       </div>
 
-      <div v-if="loading" class="state-box">正在从实时通道加载播客频道...</div>
+      <div v-if="loading" class="skeleton-list" aria-label="加载中">
+        <div v-for="n in 4" :key="n" class="skeleton-card"></div>
+      </div>
 
       <div v-else-if="errorMsg" class="state-box error">
         <p>{{ errorMsg }}</p>
@@ -225,12 +237,12 @@ export default {
               </div>
 
               <div class="ep-row-footer">
-                <div class="metrics-row tabular">
-                  <span class="metric-chip">{{ formatDateTime(ep.pubDate) }}</span>
-                  <span class="metric-chip">{{ formatDurationSeconds(ep.duration) }}</span>
-                  <span class="metric-chip">▶ {{ formatCount(ep.playCount) }}</span>
-                  <span class="metric-chip">💬 {{ formatCount(ep.commentCount) }}</span>
-                  <span v-if="progressPercent(ep.eid, ep.duration) > 0" class="metric-chip genre">
+                <div class="card-stats-line tabular">
+                  <span>{{ formatDateTime(ep.pubDate) }}</span>
+                  <span class="stat-strong">{{ formatDurationSeconds(ep.duration) }}</span>
+                  <span>▶ {{ formatCount(ep.playCount) }}</span>
+                  <span>💬 {{ formatCount(ep.commentCount) }}</span>
+                  <span v-if="progressPercent(ep.eid, ep.duration) > 0" class="genre-tag">
                     已听 {{ progressPercent(ep.eid, ep.duration) }}%
                   </span>
                 </div>

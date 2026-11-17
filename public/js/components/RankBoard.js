@@ -1,11 +1,17 @@
 import { fetchBoard, fetchEpisodeDetail } from "../api.js";
 import {
+  computeVirtualWindow,
   formatCount,
   formatMinutes,
   formatPercent,
   formatRelativeDays,
+  scrollKeeperMixin,
 } from "../utils.js";
 import AppIcon from "./AppIcon.js";
+
+const MOBILE_ROW_DEFAULT_HEIGHT = 128;
+const DESKTOP_ROW_DEFAULT_HEIGHT = 70;
+const VIRTUAL_OVERSCAN_PX = 520;
 
 const EPISODE_SORTS = [
   { key: "rank", label: "默认排名" },
@@ -32,10 +38,19 @@ const PODCAST_SORTS = [
 export default {
   name: "RankBoard",
   components: { AppIcon },
+  mixins: [scrollKeeperMixin],
   inject: ["player", "playerActions"],
   props: {
     searchQuery: { type: String, default: "" },
     boardMeta: { type: Object, default: () => ({}) },
+  },
+  created() {
+    this._mobileHeights = Object.create(null);
+    this._desktopHeights = Object.create(null);
+    this._vScrollRaf = 0;
+    this._vScrollHandler = null;
+    this._vResizeHandler = null;
+    this._lastViewportWidth = typeof window !== "undefined" ? window.innerWidth : 0;
   },
   data() {
     return {
@@ -55,6 +70,12 @@ export default {
       busyMap: {},
       observer: null,
       searchTimer: null,
+      lastFetchedQuery: "",
+      isDesktop: typeof window !== "undefined" ? window.innerWidth >= 768 : false,
+      vStart: 0,
+      vEnd: 24,
+      virtualTopPx: 0,
+      virtualBottomPx: 0,
     };
   },
   computed: {
@@ -71,30 +92,69 @@ export default {
       const info = this.boardMeta?.boards?.[this.boardKey];
       return Array.isArray(info?.genres) ? info.genres : [];
     },
+    visibleEntries() {
+      const len = this.items.length;
+      if (len === 0) return [];
+      const start = Math.max(0, Math.min(this.vStart, len));
+      const end = Math.max(start, Math.min(this.vEnd, len));
+      const slice = [];
+      for (let i = start; i < end; i += 1) {
+        const item = this.items[i];
+        slice.push({
+          index: i,
+          item,
+          key: item.eid || item.id || `row-${i}`,
+        });
+      }
+      return slice;
+    },
   },
   watch: {
-    boardKey() {
-      this.sortField = "rank";
-      this.sortDir = "asc";
-      this.selectedGenre = "all";
-      this.resetAndFetch();
-    },
     searchQuery() {
+      if (!this.isKeepAliveActive) return;
       if (this.searchTimer) clearTimeout(this.searchTimer);
       this.searchTimer = setTimeout(() => {
+        this.lastFetchedQuery = this.searchQuery;
         this.resetAndFetch();
       }, 380);
     },
   },
   mounted() {
+    this.lastFetchedQuery = this.searchQuery;
+    this.attachVirtualListeners();
     this.resetAndFetch();
     this.setupObserver();
   },
   beforeUnmount() {
+    this.detachVirtualListeners();
     if (this.observer) this.observer.disconnect();
     if (this.searchTimer) clearTimeout(this.searchTimer);
   },
   methods: {
+    onKeepAliveActivated() {
+      this.syncResponsiveMode();
+      this.attachVirtualListeners();
+      this.setupObserver();
+      if (this.searchQuery !== this.lastFetchedQuery) {
+        this.savedScrollY = 0;
+        this.lastFetchedQuery = this.searchQuery;
+        window.scrollTo(0, 0);
+        this.resetAndFetch();
+        this.attachScrollKeeper();
+        return true;
+      }
+      return false;
+    },
+    onAfterScrollRestore() {
+      this.updateVirtualRange({ measure: true });
+    },
+    onKeepAliveDeactivated() {
+      this.detachVirtualListeners();
+      if (this.observer) {
+        this.observer.disconnect();
+        this.observer = null;
+      }
+    },
     formatCount,
     formatMinutes,
     formatPercent,
@@ -116,7 +176,147 @@ export default {
     isInQueue(eid) {
       return Boolean(eid && this.player.queue.some((t) => t.eid === eid));
     },
+    activeHeightCache() {
+      return this.isDesktop ? this._desktopHeights : this._mobileHeights;
+    },
+    syncResponsiveMode() {
+      if (typeof window === "undefined") return false;
+      const w = window.innerWidth;
+      const nextDesktop = w >= 768;
+      const widthChanged = Math.abs(w - (this._lastViewportWidth || 0)) > 8;
+      const modeChanged = nextDesktop !== this.isDesktop;
+      if (widthChanged) {
+        this._lastViewportWidth = w;
+        if (nextDesktop) {
+          this._desktopHeights = Object.create(null);
+        } else {
+          this._mobileHeights = Object.create(null);
+        }
+      }
+      if (modeChanged) {
+        this.isDesktop = nextDesktop;
+      }
+      return widthChanged || modeChanged;
+    },
+    attachVirtualListeners() {
+      if (typeof window === "undefined" || this._vScrollHandler) return;
+      this._vScrollHandler = () => this.scheduleVirtualUpdate(true);
+      this._vResizeHandler = () => {
+        if (this.syncResponsiveMode()) {
+          this.$nextTick(() => this.updateVirtualRange({ measure: true }));
+        } else {
+          this.scheduleVirtualUpdate(false);
+        }
+      };
+      window.addEventListener("scroll", this._vScrollHandler, { passive: true });
+      window.addEventListener("resize", this._vResizeHandler, { passive: true });
+    },
+    detachVirtualListeners() {
+      if (this._vScrollRaf && typeof cancelAnimationFrame !== "undefined") {
+        cancelAnimationFrame(this._vScrollRaf);
+        this._vScrollRaf = 0;
+      }
+      if (typeof window === "undefined") return;
+      if (this._vScrollHandler) {
+        window.removeEventListener("scroll", this._vScrollHandler);
+        this._vScrollHandler = null;
+      }
+      if (this._vResizeHandler) {
+        window.removeEventListener("resize", this._vResizeHandler);
+        this._vResizeHandler = null;
+      }
+    },
+    scheduleVirtualUpdate(measureAfter = false) {
+      if (this._vScrollRaf || typeof requestAnimationFrame === "undefined") return;
+      this._vScrollRaf = requestAnimationFrame(() => {
+        this._vScrollRaf = 0;
+        this.updateVirtualRange({ measure: measureAfter });
+      });
+    },
+    measureRenderedRows() {
+      const container = this.isDesktop ? this.$refs.tableBody : this.$refs.cardsContainer;
+      if (!container) return false;
+      const cache = this.activeHeightCache();
+      const rows = container.querySelectorAll("[data-vindex]");
+      let changed = false;
+      for (let i = 0; i < rows.length; i += 1) {
+        const el = rows[i];
+        const idx = Number(el.getAttribute("data-vindex"));
+        if (!Number.isInteger(idx) || idx < 0) continue;
+        // Skip already-measured rows while viewport width remains unchanged
+        if (cache[idx] !== undefined) continue;
+        const rectH = el.getBoundingClientRect().height;
+        if (!(rectH > 0)) continue;
+        cache[idx] = this.isDesktop ? rectH : rectH + 10;
+        changed = true;
+      }
+      return changed;
+    },
+    updateVirtualRange({ measure = false } = {}) {
+      const len = this.items.length;
+      if (len === 0) {
+        this.vStart = 0;
+        this.vEnd = 0;
+        this.virtualTopPx = 0;
+        this.virtualBottomPx = 0;
+        return;
+      }
+
+      if (measure) {
+        this.measureRenderedRows();
+      }
+
+      const container = this.isDesktop ? this.$refs.tableBody : this.$refs.cardsContainer;
+      const defaultHeight = this.isDesktop
+        ? DESKTOP_ROW_DEFAULT_HEIGHT
+        : MOBILE_ROW_DEFAULT_HEIGHT;
+
+      if (!container || typeof window === "undefined") {
+        this.vStart = 0;
+        this.vEnd = Math.min(len, 24);
+        this.virtualTopPx = 0;
+        this.virtualBottomPx = Math.max(0, (len - this.vEnd) * defaultHeight);
+        return;
+      }
+
+      const scrollY = window.scrollY || 0;
+      const headerEl = document.querySelector(".site-header");
+      const headerH = headerEl ? headerEl.getBoundingClientRect().height : 0;
+      const listDocTop = container.getBoundingClientRect().top + scrollY;
+      const scrollRelTop = scrollY + headerH - listDocTop;
+      const visibleHeight = Math.max(0, window.innerHeight - headerH);
+
+      const win = computeVirtualWindow({
+        count: len,
+        scrollRelTop,
+        viewportHeight: visibleHeight,
+        overscanPx: VIRTUAL_OVERSCAN_PX,
+        defaultHeight,
+        heightCache: this.activeHeightCache(),
+      });
+
+      this.vStart = win.startIndex;
+      this.vEnd = win.endIndex;
+      this.virtualTopPx = win.topSpacerPx;
+      this.virtualBottomPx = win.bottomSpacerPx;
+
+      this.$nextTick(() => {
+        if (this.measureRenderedRows()) {
+          this.updateVirtualRange({ measure: false });
+        }
+      });
+    },
     resetAndFetch() {
+      if (typeof window !== "undefined" && this.fetched) {
+        window.scrollTo(0, 0);
+      }
+      this.savedScrollY = 0;
+      this._mobileHeights = Object.create(null);
+      this._desktopHeights = Object.create(null);
+      this.vStart = 0;
+      this.vEnd = 24;
+      this.virtualTopPx = 0;
+      this.virtualBottomPx = 0;
       this.fetchGen += 1;
       this.items = [];
       this.total = 0;
@@ -149,6 +349,7 @@ export default {
         this.medianValues = res.medianValues || {};
         this.noMore = this.offset >= this.total || batch.length === 0;
         this.fetched = true;
+        this.$nextTick(() => this.updateVirtualRange({ measure: true }));
       } catch (err) {
         if (gen !== this.fetchGen) return;
         this.errorMsg = err?.message || "加载榜单数据失败";
@@ -181,6 +382,10 @@ export default {
       this.resetAndFetch();
     },
     setupObserver() {
+      if (this.observer) {
+        this.observer.disconnect();
+        this.observer = null;
+      }
       const el = this.$refs.sentinel;
       if (!el || typeof IntersectionObserver === "undefined") return;
       this.observer = new IntersectionObserver(
@@ -194,6 +399,7 @@ export default {
       this.observer.observe(el);
     },
     openItem(item) {
+      this.savedScrollY = window.scrollY || 0;
       if (this.isEpisodeBoard) {
         if (item.eid && !item.eid.startsWith("raw-")) {
           this.$router.push(`/episode/${item.eid}`);
@@ -283,7 +489,11 @@ export default {
         </div>
       </div>
 
-      <div v-if="errorMsg && items.length === 0" class="state-box error">
+      <div v-if="!fetched && loading" class="skeleton-list" aria-label="加载中">
+        <div v-for="n in 5" :key="n" class="skeleton-card"></div>
+      </div>
+
+      <div v-else-if="errorMsg && items.length === 0" class="state-box error">
         <p>{{ errorMsg }}</p>
         <button type="button" class="btn sm" style="margin-top: 10px" @click="resetAndFetch">重试</button>
       </div>
@@ -292,68 +502,86 @@ export default {
         暂无匹配的榜单记录，请尝试更换搜索词或分类。
       </div>
 
-      <!-- Mobile Card Stream -->
-      <div class="rank-cards" v-if="items.length > 0">
+      <!-- Mobile Card Stream (Editorial 2-Zone, Virtualized) -->
+      <div
+        v-if="items.length > 0 && !isDesktop"
+        ref="cardsContainer"
+        class="rank-cards"
+        :style="{ paddingTop: virtualTopPx + 'px', paddingBottom: virtualBottomPx + 'px' }"
+      >
         <article
-          v-for="item in items"
-          :key="item.eid || item.id || item.rank"
+          v-for="entry in visibleEntries"
+          :key="entry.key"
+          :data-vindex="entry.index"
           class="rank-card"
-          @click="openItem(item)"
+          @click="openItem(entry.item)"
         >
-          <div class="rank-badge tabular" :class="rankBadgeClass(item.rank)">{{ item.rank }}</div>
-          <img class="cover-thumb" :src="item.logoURL" :alt="item.title || item.name" loading="lazy" />
+          <div class="card-main-row">
+            <div class="rank-num tabular" :class="rankBadgeClass(entry.item.rank)">{{ entry.item.rank }}</div>
+            <img class="cover-thumb" :src="entry.item.logoURL" :alt="entry.item.title || entry.item.name" loading="lazy" />
 
-          <div class="card-body">
-            <div class="card-title">{{ isEpisodeBoard ? item.title : item.name }}</div>
-            <div class="card-subtitle">
-              {{ isEpisodeBoard ? item.podcastName : (item.authorsText || '-') }}
-            </div>
-
-            <div class="metrics-row tabular" v-if="isEpisodeBoard">
-              <span v-if="item.primaryGenreName" class="metric-chip genre">{{ item.primaryGenreName }}</span>
-              <span class="metric-chip">▶ {{ formatCount(item.playCount) }}</span>
-              <span class="metric-chip">💬 {{ formatCount(item.commentCount) }}</span>
-              <span class="metric-chip">{{ formatMinutes(item.duration) }}</span>
-              <span class="metric-chip">{{ formatRelativeDays(item.lastReleaseDateDayCount) }}</span>
-            </div>
-
-            <div class="metrics-row tabular" v-else>
-              <span v-if="item.primaryGenreName" class="metric-chip genre">{{ item.primaryGenreName }}</span>
-              <span class="metric-chip">均播 {{ formatCount(item.avgPlayCount) }}</span>
-              <span class="metric-chip">更新 {{ formatUpdateDays(item.avgUpdateFreq) }}</span>
-              <span class="metric-chip">{{ item.trackCount }} 集</span>
+            <div class="card-head-text">
+              <div class="card-title">{{ isEpisodeBoard ? entry.item.title : entry.item.name }}</div>
+              <div class="card-sub-row">
+                <span class="card-subtitle">
+                  {{ isEpisodeBoard ? entry.item.podcastName : (entry.item.authorsText || '-') }}
+                </span>
+                <span v-if="entry.item.primaryGenreName" class="genre-tag">{{ entry.item.primaryGenreName }}</span>
+              </div>
             </div>
           </div>
 
-          <div class="card-actions" v-if="isEpisodeBoard" @click.stop>
-            <button
-              type="button"
-              class="mini-action-btn play"
-              :class="{ active: isCurrentPlaying(item.eid) }"
-              :disabled="busyMap[item.eid]"
-              @click="handleQuickEpisodeAction(item, 'play')"
-              :title="isCurrentPlaying(item.eid) ? '暂停' : '立即播放'"
-            >
-              <app-icon v-if="busyMap[item.eid]" name="loader-circle" :size="16" />
-              <app-icon v-else-if="isCurrentPlaying(item.eid)" name="pause" :size="16" />
-              <app-icon v-else name="play" :size="16" />
-            </button>
-            <button
-              type="button"
-              class="mini-action-btn"
-              :disabled="busyMap[item.eid]"
-              @click="handleQuickEpisodeAction(item, 'queue')"
-              title="加入播放列表"
-            >
-              <app-icon v-if="isInQueue(item.eid)" name="check" :size="15" />
-              <app-icon v-else name="plus" :size="15" />
-            </button>
+          <div class="card-footer-row">
+            <div class="card-stats-line tabular" v-if="isEpisodeBoard">
+              <span class="stat-strong">▶ {{ formatCount(entry.item.playCount) }}</span>
+              <span>💬 {{ formatCount(entry.item.commentCount) }}</span>
+              <span>{{ formatMinutes(entry.item.duration) }}</span>
+              <span>{{ formatRelativeDays(entry.item.lastReleaseDateDayCount) }}</span>
+            </div>
+
+            <div class="card-stats-line tabular" v-else>
+              <span class="stat-strong">均播 {{ formatCount(entry.item.avgPlayCount) }}</span>
+              <span>每{{ formatUpdateDays(entry.item.avgUpdateFreq) }}更新</span>
+              <span>{{ entry.item.trackCount }} 集</span>
+            </div>
+
+            <div class="card-pill-actions" v-if="isEpisodeBoard" @click.stop>
+              <button
+                type="button"
+                class="pill-play-btn"
+                :class="{ active: isCurrentPlaying(entry.item.eid) }"
+                :disabled="busyMap[entry.item.eid]"
+                @click="handleQuickEpisodeAction(entry.item, 'play')"
+                :title="isCurrentPlaying(entry.item.eid) ? '暂停' : '立即播放'"
+              >
+                <app-icon v-if="busyMap[entry.item.eid]" name="loader-circle" :size="13" />
+                <app-icon v-else-if="isCurrentPlaying(entry.item.eid)" name="pause" :size="13" />
+                <app-icon v-else name="play" :size="13" />
+                <span>{{ isCurrentPlaying(entry.item.eid) ? '暂停' : '播放' }}</span>
+              </button>
+              <button
+                type="button"
+                class="circle-queue-btn"
+                :class="{ queued: isInQueue(entry.item.eid) }"
+                :disabled="busyMap[entry.item.eid]"
+                @click="handleQuickEpisodeAction(entry.item, 'queue')"
+                title="加入播放列表"
+              >
+                <app-icon v-if="isInQueue(entry.item.eid)" name="check" :size="14" />
+                <app-icon v-else name="plus" :size="14" />
+              </button>
+            </div>
+
+            <div class="card-enter-hint" v-else>
+              <span>频道</span>
+              <app-icon name="arrow-right" :size="13" />
+            </div>
           </div>
         </article>
       </div>
 
-      <!-- Desktop Responsive Table -->
-      <div class="rank-table-wrap" v-if="items.length > 0">
+      <!-- Desktop Responsive Table (Virtualized) -->
+      <div class="rank-table-wrap" v-else-if="items.length > 0">
         <table class="rank-table" v-if="isEpisodeBoard">
           <thead>
             <tr>
@@ -384,53 +612,65 @@ export default {
               <th>收听</th>
             </tr>
           </thead>
-          <tbody class="tabular">
-            <tr v-for="item in items" :key="item.eid || item.rank" @click="openItem(item)">
+          <tbody ref="tableBody" class="tabular">
+            <tr v-if="virtualTopPx > 0" class="virtual-spacer-row" aria-hidden="true" :style="{ height: virtualTopPx + 'px' }">
+              <td colspan="10" :style="{ height: virtualTopPx + 'px' }"></td>
+            </tr>
+            <tr
+              v-for="entry in visibleEntries"
+              :key="entry.key"
+              :data-vindex="entry.index"
+              @click="openItem(entry.item)"
+            >
               <td>
-                <span class="rank-badge" :class="rankBadgeClass(item.rank)">{{ item.rank }}</span>
+                <span class="rank-num" :class="rankBadgeClass(entry.item.rank)">{{ entry.item.rank }}</span>
               </td>
-              <td>
+              <td class="title-col">
                 <div class="table-item-cell">
-                  <img class="table-cover" :src="item.logoURL" :alt="item.title" loading="lazy" />
+                  <img class="table-cover" :src="entry.item.logoURL" :alt="entry.item.title" loading="lazy" />
                   <div style="min-width:0">
-                    <div class="table-title">{{ item.title }}</div>
-                    <div class="table-sub">{{ item.podcastName }}</div>
+                    <div class="table-title">{{ entry.item.title }}</div>
+                    <div class="table-sub">{{ entry.item.podcastName }}</div>
                   </div>
                 </div>
               </td>
-              <td>{{ formatCount(item.playCount) }}</td>
-              <td>{{ formatCount(item.commentCount) }}</td>
-              <td>{{ formatPercent(item.interactiveRate) }}</td>
-              <td>{{ formatPercent(item.openRate) }}</td>
-              <td>{{ formatMinutes(item.duration) }}</td>
-              <td>{{ formatRelativeDays(item.lastReleaseDateDayCount) }}</td>
-              <td><span class="metric-chip genre" v-if="item.primaryGenreName">{{ item.primaryGenreName }}</span></td>
+              <td>{{ formatCount(entry.item.playCount) }}</td>
+              <td>{{ formatCount(entry.item.commentCount) }}</td>
+              <td>{{ formatPercent(entry.item.interactiveRate) }}</td>
+              <td>{{ formatPercent(entry.item.openRate) }}</td>
+              <td>{{ formatMinutes(entry.item.duration) }}</td>
+              <td>{{ formatRelativeDays(entry.item.lastReleaseDateDayCount) }}</td>
+              <td><span class="genre-tag" v-if="entry.item.primaryGenreName">{{ entry.item.primaryGenreName }}</span></td>
               <td @click.stop>
                 <div class="table-actions">
                   <button
                     type="button"
-                    class="mini-action-btn play"
-                    :class="{ active: isCurrentPlaying(item.eid) }"
-                    :disabled="busyMap[item.eid]"
-                    @click="handleQuickEpisodeAction(item, 'play')"
-                    :title="isCurrentPlaying(item.eid) ? '暂停' : '立即播放'"
+                    class="circle-queue-btn"
+                    :class="{ queued: isCurrentPlaying(entry.item.eid) }"
+                    :disabled="busyMap[entry.item.eid]"
+                    @click="handleQuickEpisodeAction(entry.item, 'play')"
+                    :title="isCurrentPlaying(entry.item.eid) ? '暂停' : '立即播放'"
                   >
-                    <app-icon v-if="busyMap[item.eid]" name="loader-circle" :size="15" />
-                    <app-icon v-else-if="isCurrentPlaying(item.eid)" name="pause" :size="15" />
-                    <app-icon v-else name="play" :size="15" />
+                    <app-icon v-if="busyMap[entry.item.eid]" name="loader-circle" :size="14" />
+                    <app-icon v-else-if="isCurrentPlaying(entry.item.eid)" name="pause" :size="14" />
+                    <app-icon v-else name="play" :size="14" />
                   </button>
                   <button
                     type="button"
-                    class="mini-action-btn"
-                    :disabled="busyMap[item.eid]"
-                    @click="handleQuickEpisodeAction(item, 'queue')"
+                    class="circle-queue-btn"
+                    :class="{ queued: isInQueue(entry.item.eid) }"
+                    :disabled="busyMap[entry.item.eid]"
+                    @click="handleQuickEpisodeAction(entry.item, 'queue')"
                     title="加入播放列表"
                   >
-                    <app-icon v-if="isInQueue(item.eid)" name="check" :size="15" />
-                    <app-icon v-else name="plus" :size="15" />
+                    <app-icon v-if="isInQueue(entry.item.eid)" name="check" :size="14" />
+                    <app-icon v-else name="plus" :size="14" />
                   </button>
                 </div>
               </td>
+            </tr>
+            <tr v-if="virtualBottomPx > 0" class="virtual-spacer-row" aria-hidden="true" :style="{ height: virtualBottomPx + 'px' }">
+              <td colspan="10" :style="{ height: virtualBottomPx + 'px' }"></td>
             </tr>
           </tbody>
         </table>
@@ -456,28 +696,39 @@ export default {
               <th class="sortable" @click="toggleColumnSort('avgOpenRate')">打开率{{ sortIndicator('avgOpenRate') }}</th>
             </tr>
           </thead>
-          <tbody class="tabular">
-            <tr v-for="item in items" :key="item.id || item.rank" @click="openItem(item)">
+          <tbody ref="tableBody" class="tabular">
+            <tr v-if="virtualTopPx > 0" class="virtual-spacer-row" aria-hidden="true" :style="{ height: virtualTopPx + 'px' }">
+              <td colspan="10" :style="{ height: virtualTopPx + 'px' }"></td>
+            </tr>
+            <tr
+              v-for="entry in visibleEntries"
+              :key="entry.key"
+              :data-vindex="entry.index"
+              @click="openItem(entry.item)"
+            >
               <td>
-                <span class="rank-badge" :class="rankBadgeClass(item.rank)">{{ item.rank }}</span>
+                <span class="rank-num" :class="rankBadgeClass(entry.item.rank)">{{ entry.item.rank }}</span>
               </td>
-              <td>
+              <td class="title-col">
                 <div class="table-item-cell">
-                  <img class="table-cover" :src="item.logoURL" :alt="item.name" loading="lazy" />
+                  <img class="table-cover" :src="entry.item.logoURL" :alt="entry.item.name" loading="lazy" />
                   <div style="min-width:0">
-                    <div class="table-title">{{ item.name }}</div>
-                    <div class="table-sub">{{ item.authorsText || '-' }}</div>
+                    <div class="table-title">{{ entry.item.name }}</div>
+                    <div class="table-sub">{{ entry.item.authorsText || '-' }}</div>
                   </div>
                 </div>
               </td>
-              <td><span class="metric-chip genre" v-if="item.primaryGenreName">{{ item.primaryGenreName }}</span></td>
-              <td>{{ formatUpdateDays(item.avgUpdateFreq) }}</td>
-              <td>{{ formatRelativeDays(item.lastReleaseDateDayCount) }}</td>
-              <td>{{ item.trackCount }}</td>
-              <td>{{ formatMinutes(item.avgDuration) }}</td>
-              <td>{{ formatCount(item.avgPlayCount) }}</td>
-              <td>{{ formatCount(item.avgCommentCount) }}</td>
-              <td>{{ formatPercent(item.avgOpenRate) }}</td>
+              <td><span class="genre-tag" v-if="entry.item.primaryGenreName">{{ entry.item.primaryGenreName }}</span></td>
+              <td>{{ formatUpdateDays(entry.item.avgUpdateFreq) }}</td>
+              <td>{{ formatRelativeDays(entry.item.lastReleaseDateDayCount) }}</td>
+              <td>{{ entry.item.trackCount }}</td>
+              <td>{{ formatMinutes(entry.item.avgDuration) }}</td>
+              <td>{{ formatCount(entry.item.avgPlayCount) }}</td>
+              <td>{{ formatCount(entry.item.avgCommentCount) }}</td>
+              <td>{{ formatPercent(entry.item.avgOpenRate) }}</td>
+            </tr>
+            <tr v-if="virtualBottomPx > 0" class="virtual-spacer-row" aria-hidden="true" :style="{ height: virtualBottomPx + 'px' }">
+              <td colspan="10" :style="{ height: virtualBottomPx + 'px' }"></td>
             </tr>
           </tbody>
         </table>

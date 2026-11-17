@@ -12,8 +12,8 @@
 - **数据策略**：
   1. **首页 4 大榜单**由 Cloudflare Cron 每日 2 个时刻（北京时间 `08:00` 与 `20:00`，即 UTC `00:00` 与 `12:00`）启动同步，通过兼容 Cloudflare Free Plan 的**分批接力状态机**抓取 `xyzrank.com` 全量数据并存入 **Cloudflare D1 (SQLite)**，再由自建 `/api/boards/*` 对外提供搜索、排序与分页服务。
   2. **播客频道页 & 单集播放页**均内置在本项目前端路由中（保留"去小宇宙官网"外链），所需数据（频道单集列表、单集音频地址、Shownotes、热评列表）采用**浏览器端直连 CORS `fetch` 为主 + 后端可选 `XYZ_RELAY_URL` 转发兜底**的实时按需方案（复用同一份纯函数解析器 `public/js/xyzParser.js`），**不做预取与数据库缓存**。
-  3. **音频下载**：因音频 CDN (`media.xyzcdn.net`) 无 CORS 响应头，由 Worker 提供白名单流式代理 `/api/audio/download` 实现按单集标题重命名下载。
-- **核心收听体验**：全局常驻迷你播放器 + 可展开全屏播控页（切换榜单/逛频道不断播）、向前 30 秒 / 向后 15 秒、倍速调节、循环模式（顺序 / 单曲 / 列表循环）、白名单流式音频下载、播放列表与拖拽调序、基于 `localStorage` 的断点续播进度保存与恢复。
+  3. **音频在线收听**：直接由 `<audio src="https://media.xyzcdn.net/...">` 流式播放；出于版权合规考虑，项目不提供音频文件下载按钮与下载代理接口。
+- **核心收听体验**：全局常驻迷你播放器 + 可展开全屏播控页（切换榜单/逛频道不断播）、向前 30 秒 / 向后 15 秒、倍速调节、循环模式（顺序 / 单曲 / 列表循环）、播放列表与拖拽调序、基于 `localStorage` 的断点续播进度保存与恢复、固定顶栏与榜单虚拟滚动。
 - **已知边界**：小宇宙官网网页端不提供逐字稿正文（仅 App 端有），本项目不实现字幕/逐字稿功能。
 
 ---
@@ -60,13 +60,18 @@ xyz-podcast/
 │   ├── handlers/
 │   │   ├── boards.js         # /api/boards/* 榜单查询、搜索、排序、分页、元信息
 │   │   ├── xiaoyuzhou.js     # /api/xiaoyuzhou/podcast/:pid 与 /episode/:eid 实时抓取解析
-│   │   ├── download.js       # /api/audio/download 白名单流式下载代理
 │   │   └── admin.js          # /api/admin/sync 手动同步与状态查询（ADMIN_KEY 鉴权）
 │   └── utils/
 │       ├── http.js           # JSON 响应、CORS/缓存头、参数与 ID 白名单校验
 │       └── parser.js         # 转发导出 public/js/xyzParser.js（前后端共享单一解析器）
 ├── public/
-│   ├── index.html            # SPA 入口 HTML（引入 CDN Vue3 / Router / unpkg 依赖）
+│   ├── index.html            # SPA 入口 HTML（引入 CDN Vue3 / Router / unpkg 依赖 + PWA meta）
+│   ├── site.webmanifest      # PWA 清单（standalone 沉浸式 + 图标声明）
+│   ├── sw.js                 # 轻量 Service Worker（静态壳网络优先，不缓存 /api/* 与跨域请求）
+│   ├── icon.svg              # 矢量应用图标
+│   ├── icon.png              # 256x256 Apple Touch 图标
+│   ├── icon-192.png          # 192x192 PWA 图标
+│   ├── icon-512.png          # 512x512 PWA 图标
 │   ├── css/
 │   │   └── app.css           # CSS 变量、移动端卡片流、PC 适配、播放器与抽屉样式
 │   └── js/
@@ -76,9 +81,9 @@ xyz-podcast/
 │       ├── utils.js          # 时长格式化、时间戳识别转换、数字缩写（1.2万）
 │       ├── components/
 │       │   ├── AppIcon.js        # Lucide UMD SVG 安全包装组件（避免 Vue VDOM 冲突）
-│       │   ├── RankBoard.js      # 4 榜单展示组件（移动端卡片 / PC 表格、搜索/排序/加载更多）
+│       │   ├── RankBoard.js      # 4 榜单展示组件（虚拟滚动卡片/表格、搜索/排序/加载更多）
 │       │   ├── PodcastView.js    # 播客频道页（简介 + 最新 15 集 + 快捷播放/加队列）
-│       │   ├── EpisodeView.js    # 单集播放页（Shownotes 时间戳跳转 + 热评区 + 下载）
+│       │   ├── EpisodeView.js    # 单集播放页（Shownotes 时间戳跳转 + 热评区）
 │       │   ├── PlayerBar.js      # 底部迷你播放器 + 展开全屏播控页（-15s/+30s/倍速/循环）
 │       │   └── PlaylistDrawer.js # 播放列表抽屉（SortableJS 拖拽排序 + 上移/下移/移除）
 │       └── app.js            # Vue 3 Options API 根实例、VueRouter 初始化、全局音频控制器
@@ -123,7 +128,7 @@ xyz-podcast/
 > - **落地策略**：
 >   1. **主通道**：前端在用户浏览器直接 `fetch("https://www.xiaoyuzhoufm.com/podcast/:pid")` 与 `/episode/:eid`，交由共享纯函数模块 `public/js/xyzParser.js` 提取解析。
 >   2. **兜底通道**：Worker 后端保留 `/api/xiaoyuzhou/podcast/:pid` 与 `/episode/:eid`（支持配置可选 `XYZ_RELAY_URL` / `XYZ_RELAY_TOKEN` 环境变量，或在非 CF 运行时直接请求）。
->   3. **音频 CDN (`media.xyzcdn.net`)**：不受 `cf-worker` 头影响但缺少 `access-control-allow-origin`，因此音频播放直接 `<audio src="https://media.xyzcdn.net/...">`，下载统一走 Worker `/api/audio/download`。
+>   3. **音频 CDN (`media.xyzcdn.net`)**：不受 `cf-worker` 头影响，支持 `Accept-Ranges: bytes`，`<audio src="https://media.xyzcdn.net/...">` 可直接流式播放并拖动进度条（仅提供在线收听，不提供文件下载）。
   - `User-Agent`: 现代浏览器 UA（如 Chrome 桌面/移动 UA）
   - `Referer`: `https://www.xiaoyuzhoufm.com/`
   - `Accept`: `text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8`
@@ -144,8 +149,7 @@ xyz-podcast/
     - **已核实限制**：未登录网页端无评论分页 API，前端需展示提示「当前展示热门精选评论，查看更多请前往小宇宙 App」。
 - **音频 CDN (`media.xyzcdn.net`) 特性（已实测）**：
   - 支持 `Accept-Ranges: bytes`，`<audio src="https://media.xyzcdn.net/...">` 可直接播放并拖动进度条。
-  - 响应头**不含** `Access-Control-Allow-Origin: *`，因此浏览器端 `<a download>` 跨源无法按单集标题重命名下载；必须由 Worker 提供白名单流式代理接口 `/api/audio/download`。
-  - 前端 HTML `<head>` 建议设置 `<meta name="referrer" content="no-referrer">`，避免第三方图片/音频后续收紧防盗链。
+  - 前端 HTML `<head>` 设置 `<meta name="referrer" content="no-referrer">`，避免第三方图片/音频后续收紧防盗链。
 
 ---
 
@@ -184,13 +188,11 @@ xyz-podcast/
 | `GET /api/boards/:board` | 无 | 分页查询榜单；参数 `offset` (0), `limit` (<=100), `q`, `genre`, `sort` (白名单映射 SQL 列), `dir` (`asc`\|`desc`) |
 | `GET /api/xiaoyuzhou/podcast/:pid` | 无 | 实时抓小宇宙播客页并解析返回 `{ podcast, episodes, limited: true, sourceUrl }` |
 | `GET /api/xiaoyuzhou/episode/:eid` | 无 | 实时抓小宇宙单集页并解析返回 `{ episode, comments, limited: true, sourceUrl }` |
-| `GET /api/audio/download` | 无 | 参数 `url`, `filename`；严格校验 `url` 域名白名单后流式转发音频并附加 `Content-Disposition: attachment` |
 | `POST /api/admin/sync` | `X-Admin-Key` | 手动触发同步（支持 `{ reset?: boolean, batches?: number }`，冷启动/调试用） |
 | `GET /api/admin/sync/status` | `X-Admin-Key` | 查看 `sync_runs` 与 `active_sync_version` |
 
 > **安全边界**：
 > - `pid` / `eid` 必须做正则校验（如 `/^[a-zA-Z0-9]{16,36}$/`），禁止构造任意路径/SSRF。
-> - `/api/audio/download` 仅允许 `https:` 且 hostname 白名单（`media.xyzcdn.net` 或 `*.xyzcdn.net`、`*.xiaoyuzhoufm.com`），禁止内网 IP 或任意域名代理。
 > - `/api/boards/:board` 的 `sort` 字段必须使用**显式白名单字典**映射到 SQL 列名，严禁字符串拼接用户输入。
 > - `ADMIN_KEY` 通过 `.dev.vars`（本地）和 `wrangler secret put ADMIN_KEY`（线上）配置，绝不硬编码或提交 git。
 
@@ -200,16 +202,17 @@ xyz-podcast/
 
 ### 6.1 路由与页面
 1. **首页 4 榜单 (`/`, `/hot-podcasts`, `/hot-episodes-new`, `/new-podcasts`)**
-   - 顶部吸顶导航：Logo、全局搜索框（400ms 防抖）、4 榜单 Tab 切换、排序选择器、分类筛选、同步时间徽章。
+   - 顶部固定导航（`position: fixed` + `--header-h` 动态内边距）：Logo、全局搜索框（380ms 防抖）、4 榜单 Tab 切换、播放列表按钮、主题切换与同步时间徽章。
+   - **虚拟滚动 (`RankBoard.js` + `computeVirtualWindow`)**：移动端 `.rank-cards` 与 PC 端 `.rank-table` `<tbody>` 均仅渲染可视窗口及前后缓冲区条目，动态测量并缓存实测行高，通过上下 spacer 保持总文档高度，避免长列表 DOM 膨胀。
    - **移动端 (`< 768px`)**：卡片流布局（排名、正方形封面、主标题、播客名/主播、关键指标标签；单集卡片附「▶ 播放」「+ 队列」按钮）。
-   - **PC 端 (`>= 768px`)**：自适应高信息密度表格或宽卡片（支持列头排序、中位数提示），保留快捷播放/入队与进内页交互。
+   - **PC 端 (`>= 768px`)**：自适应高信息密度表格（支持列头排序、中位数提示），保留快捷播放/入队与进内页交互。
    - 触底 `IntersectionObserver` 自动加载下一页（或手动"加载更多"兜底）。
 2. **播客频道页 (`/podcast/:pid`)**
    - 展示频道封面、标题、主播、简介（可展开）、订阅/总集数、"去小宇宙官网"外链。
    - 最新 15 集列表：支持单集「▶ 播放」「+ 加入播放列表」「看详情/Shownotes」，以及「将本页 15 集全部加入播放列表」快捷操作；显示网页端 15 集限制提示。
 3. **单集播放页 (`/episode/:eid`)**
    - 展示单集封面、标题、可点击跳转到 `/podcast/:pid` 的所属播客链接、发布时间、时长、数据指标、付费/试听提示（如适用）、"去小宇宙官网"外链。
-   - 操作区：「▶ 播放 / ⏸ 暂停」「+ 加入播放列表」「⬇ 下载音频」。
+   - 操作区：「▶ 播放 / ⏸ 暂停 / 继续播放」「+ 加入播放列表」。
    - **Shownotes**：经 `DOMPurify.sanitize()` 净化渲染，识别文内 `HH:MM:SS` / `MM:SS` 时间戳转为可点击高亮按钮，点击即自动加载当前单集并跳转到对应秒数播放。
    - **热评区**：渲染置顶/热评列表、IP 属地、徽章、点赞数及二级回复，并展示约 20 条热评限制提示。
 
@@ -278,13 +281,14 @@ npm run deploy               # npx wrangler deploy
 ## 9. 当前进度与交接快照
 
 - **最后更新**：2026-11-17
-- **当前阶段**：`Phase 0 ~ Phase 6 与 Phase 7 本地回归全部完成，待用户侧绑定真实 Cloudflare 账号后执行线上部署 (P7-04)`
+- **当前阶段**：`P7-04 已部署上线；P7-05 & P7-06 (移除下载功能、固定顶栏、榜单虚拟滚动) 代码已落盘，待根路径复测、清理遗留文件、提交并重新部署`
 - **已完成事项**：
-  - `Phase 0` ~ `Phase 3`：完成架构设计、目录扁平化、D1 schema (`0001_init.sql`)、分批接力同步状态机（本地 D1 已同步 9,132 条全量榜单数据）、`/api/boards/*`、`/api/audio/download`、前后端共享解析器 `public/js/xyzParser.js` 及浏览器端 CORS 直连打通。
-  - `Phase 4` ~ `Phase 6`：完成零构建 Vue 3 Options API SPA（`public/index.html`、`app.css`、`api.js`、`utils.js`、`storage.js`、`app.js`、`AppIcon.js`、`RankBoard.js`、`PodcastView.js`、`EpisodeView.js`、`PlayerBar.js`、`PlaylistDrawer.js`）。
-  - `Phase 7`（本地回归）：`npm test` **19/19** 全通过；真实无头浏览器 Playwright + Obscura 端到端实测移动端 (`390x844`) 与桌面端 (`1280x800`) 4 榜单切换、搜索排序、单集 26 处原生 `data-timestamp` 时间戳跳转、21 条热评、频道 15 集加队列、全屏播控（`-15s`/`+30s`/倍速/循环）、队列调序、`localStorage` 刷新恢复与断点续播 CTA、异常态兜底全部通过，**0 控制台/页面报错**。
-- **待用户侧线上部署动作 (`P7-04`)**：
-  1. `npx wrangler login` 登录 Cloudflare 账号。
-  2. `npx wrangler d1 create xyz-podcast-db` 并把返回的 `database_id` 填入 `wrangler.toml`。
-  3. `npx wrangler d1 migrations apply xyz-podcast-db --remote` 应用建表迁移。
-  4. `npx wrangler secret put ADMIN_KEY` 配置管理密钥，再执行 `npm run deploy` 上线，最后按批调用 `/api/admin/sync` 完成首次冷启动灌库。
+  - `Phase 0` ~ `Phase 7`（`P7-04` 已部署至 `https://xyz-podcast.icheer.workers.dev`，`wrangler.toml` 已绑定 D1 `224bbab0-b5e7-4547-9735-9038d63b8f53`）。
+  - `P7-05`：新增完整 PWA（`site.webmanifest`、`sw.js`、`icon.svg`、`icon-192.png`、`icon.png`、`icon-512.png`、动态 `theme-color`、`beforeinstallprompt` 安装按钮）、重构移动端两段式榜单项卡片、骨架屏、修复播放列表底部弹窗 `min-height: 56vh`（实测 `473px`）、修正 `app.css` 字重 `500/700` 与合成层问题、新增 `<keep-alive>` + `scrollKeeperMixin` 实现详情页后退不刷新列表并保留滚动位置，并编写 `README.md`。
+  - `P7-06`：移除前后端所有音频下载入口（移除 `EpisodeView.js` / `PlayerBar.js` "下载音频"按钮、`api.js` `buildAudioDownloadUrl` 与 `src/index.js` `/api/audio/download` 路由）；将 `.site-header` 改为 `position: fixed` 并通过 `ResizeObserver` 动态同步 `--header-h`；为 `RankBoard.js` 移动端卡片流与 PC 表格接入 `computeVirtualWindow` 动态测量虚拟滚动并补充单测；重构移动端 `.mini-player` 排版，并在 `AppIcon.js` 新增数字内嵌回环箭头的 `skip-back-15` / `skip-forward-30` 图标，显著扩展标题与进度显示宽度。
+- **当前注意**：由于原会话工作目录 `/home/projects/_ai-apps/xyz-podcast/xyz-podcast` 已从磁盘删除，当前工作区仅能进行文件编辑，无法直接运行 `run_command`。
+- **下一位 Agent / 用户终端的精确动作**：
+  1. 删除已下线的下载代理文件并运行单测：
+     `cd /home/projects/_ai-apps/xyz-podcast && rm -f src/handlers/download.js && npm test`
+  2. 本地 `npm run dev` 或部署后实测：无「下载音频」按钮、顶栏滚动全程固定不遮挡内容、榜单大列表滚动仅渲染视口附近少量 DOM、详情页后退保留列表与滚动位置；随后将 `CHECKLIST.md` 中 `P7-05` / `P7-06` 改为 `[x]`。
+  3. 提交并重新部署：`git add -A && git commit -m "feat: remove audio download, fix header, and add virtual scrolling" && npm run deploy`

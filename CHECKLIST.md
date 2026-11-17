@@ -143,8 +143,23 @@
   - *验证结果*：实测访问无效单集 `/episode/nonexistent0000000000` 正确渲染友好错误态且无报错。
 - [x] **P7-03** 文档与代码最终一致性审查
   - *验收标准*：核对 `AGENTS.md`、`CHECKLIST.md`、`CLAUDE.md` 与实际文件树、路由、命令完全一致，无遗留占位符。
-- [ ] **P7-04** 部署上线指南 / 远程验证（需用户本机 Cloudflare 账号授权）
-  - *现状*：当前环境未登录 Cloudflare (`npx wrangler whoami` 未认证)，待用户执行 `wrangler login`、`wrangler d1 create xyz-podcast-db`（回填 `wrangler.toml` `database_id`）、`npm run db:migrate:remote`、`npx wrangler secret put ADMIN_KEY` 与 `npm run deploy` 完成线上发布。
+- [x] **P7-04** 首次线上部署与 D1 绑定
+  - *验收标准*：完成 `wrangler login`、创建远程 D1 (`224bbab0-b5e7-4547-9735-9038d63b8f53`)、应用远程迁移、配置 `ADMIN_KEY` 与 `wrangler deploy`。
+  - *验证结果*：已上线至 `https://xyz-podcast.icheer.workers.dev`，`/api/health` 返回 `{"ok":true,"db":"ok"}`，已开始冷启动同步。
+- [/] **P7-05** PWA 沉浸式体验、列表卡片重构、返回滚动保持与 `README.md`
+  - *完成内容*：
+    - PWA：`public/icon.svg`、`public/icon-192.png`、`public/icon.png` (256x256)、`public/icon-512.png`、`public/site.webmanifest`、`public/sw.js`、`index.html` PWA meta 与 `app.js` 注册/主题色同步。
+    - 移动端卡片与播放器重构：`RankBoard.js` 两段式卡片（主标题占满全宽、底部虚线分隔数据与 `播放`/`+` 胶囊按钮）、加载骨架屏、`PlayerBar.js` 窄屏精简按钮、自适应安全区、`PlaylistDrawer.js` `min-height: 56vh` 防塌陷与顶部拖拽指示条。
+    - 返回不刷新与滚动位置恢复：`app.js` 为 `RankBoard` / `PodcastView` 接入按路由区分 `:key` 的 `<keep-alive>`，抽离公共 `scrollKeeperMixin` (`public/js/utils.js`) 保存与恢复各列表的 `savedScrollY` 并管理 `IntersectionObserver` 激活态。
+    - 最终 CSS 修正：统一 `font-weight` 为 `500/700`、移除 `backdrop-filter` 避免抽屉层透出底层文字、修复搜索框占位文字垂直居中；编写项目 `README.md`。
+  - *当前状态*：PWA 静态资源 `200`、抽屉高度 `473px`、零横向溢出均已在上一轮实测通过；**CSS 修正、`<keep-alive>` 返回滚动保持与 `README.md` 编写后，因本会话旧工作目录 `xyz-podcast/xyz-podcast` 已不存在导致 `run_command` 无法执行**，待在根目录 `/home/projects/_ai-apps/xyz-podcast` 下复测并标记 `[x]`。
+- [/] **P7-06** 移除音频下载功能、固定全局 Header、榜单虚拟滚动
+  - *完成内容*：
+    - 移除下载功能（版权合规）：删除 `EpisodeView.js` 与 `PlayerBar.js`「下载音频」按钮、删除 `public/js/api.js` `buildAudioDownloadUrl`、移除 `src/index.js` `/api/audio/download` 路由并清理 `test/parser.test.js` 对应测试用例（遗留未引用文件 `src/handlers/download.js` 待终端 `rm` 删除）。
+    - 固定整个 Header：将 `public/css/app.css` `html, body` 改为 `overflow-x: clip`，`.site-header` 改为 `position: fixed; top: 0; left: 0; right: 0;`，`.app-shell` 使用 `padding-top: var(--header-h, 146px)`；`public/js/app.js` 通过 `ResizeObserver` 与路由切换 `$nextTick` 实时同步 `--header-h`。
+    - 榜单虚拟滚动：`public/js/utils.js` 新增 `computeVirtualWindow` 纯函数（支持前缀和与二分查找、动态行高缓存及 `test/frontend.test.js` 单测）；`RankBoard.js` 为移动端 `.rank-cards`（上下 padding 占位）与桌面端 `.rank-table`（上下 `virtual-spacer-row`）接入实测行高虚拟滚动并与 `<keep-alive>` / `onAfterScrollRestore` 协同。
+    - 移动端迷你播放栏排版重构：`AppIcon.js` 新增将数字 `15` / `30` 内嵌于回环箭头中的自定义 SVG 图标（`skip-back-15` / `skip-forward-30`）并统一用于迷你栏与全屏播控页；`PlayerBar.js` 与 `app.css` 精简 `< 480px` 窄屏冗余按钮（收起/队列按钮由固定顶栏及点击封面区展开承担，保留 `-15` / 播放 / `+30`），为节目标题与时长进度腾出充足水平空间；`public/index.html` 资源缓存版本号升级至 `?v=6`。
+  - *当前状态*：代码与文档均已写入并复核；因本会话 `run_command` 绑定于已删除的旧目录 `xyz-podcast/xyz-podcast` 无法执行命令，待在 `/home/projects/_ai-apps/xyz-podcast` 运行 `rm -f src/handlers/download.js && npm test`、页面实测（固定顶栏、移动端迷你播放栏、虚拟滚动 DOM 数量与返回滚动恢复）后标记 `[x]` 并部署。
 
 ---
 
@@ -156,4 +171,5 @@
 | 2026-11-17 | Phase 1 (`P1-01`~`P1-04`) | 初始化 `package.json`、`wrangler.toml`、`.gitignore`、`.dev.vars.example`、`migrations/0001_init.sql`、`src/index.js`、`src/utils/http.js`、`src/db/schema.js`、`public/index.html` 占位与 `test/schema.test.js` | `wrangler d1 migrations apply --local` 成功；`wrangler dev` `/api/health` 返回 200；`npm test` 4/4 通过 | 进入 Phase 2 |
 | 2026-11-17 | Phase 2 (`P2-01`~`P2-04`) | 实现 `src/db/sync.js` 分批接力状态机（`DEFAULT_MAX_PAGES_PER_BATCH=15`）、`src/handlers/admin.js`、`src/handlers/boards.js`、接入 `scheduled()` 并修复 `wrangler.toml` `run_worker_first` 放行 `/__scheduled`；新增 `test/sync.test.js` | `npm test` 10/10 通过；`wrangler dev --test-scheduled` 实测拉取 `xyzrank.com` 全量 9,132 条入 D1，`/api/boards/*` 搜索/分类/排序正常 | 进入 Phase 3 |
 | 2026-11-17 | Phase 3 (`P3-01`~`P3-04`) | 消除多余嵌套目录将仓库移至根路径；验证小宇宙官网支持浏览器 CORS 直连（`access-control-allow-origin` 动态回显 Origin），将解析器抽至前后端共享 `public/js/xyzParser.js`，后端保留 `XYZ_RELAY_URL` 可选兜底与 `/api/audio/download` | `npm test` 15/15 通过；真实浏览器（Playwright+Obscura）实测从 `http://127.0.0.1:8787/` CORS 请求小宇宙播客页与单集页均返回 `200` 并成功解析 | 进入 Phase 4 (`P4-01`~`P4-04`) |
-| 2026-11-17 | Phase 4 ~ 7 (`P4-01`~`P7-03`) | 完成全部 Vue 3 Options API 前端视图（4 榜单/频道页/单集页）、全局播放器与播控抽屉、`SortableJS` 列表调序、`localStorage` 续播、Shownotes 时间戳跳转及 `test/frontend.test.js` | `npm test` **19/19** 通过；Playwright + Obscura 实测手机 (`390x844`) 与桌面 (`1280x800`) 全流程通过，0 控制台/页面报错 | 仅剩 `P7-04`：用户本机 `wrangler login` 并绑定线上 D1 后执行 `npm run deploy` |
+| 2026-11-17 | Phase 4 ~ 7 (`P4-01`~`P7-03`) | 完成全部 Vue 3 Options API 前端视图（4 榜单/频道页/单集页）、全局播放器与播控抽屉、`SortableJS` 列表调序、`localStorage` 续播、Shownotes 时间戳跳转及 `test/frontend.test.js` | `npm test` **19/19** 通过；Playwright + Obscura 实测手机 (`390x844`) 与桌面 (`1280x800`) 全流程通过，0 控制台/页面报错 | 推进 `P7-04` / `P7-05` |
+| 2026-11-17 | `P7-04` ~ `P7-06` | 完成线上首次部署（`https://xyz-podcast.icheer.workers.dev`）；新增 PWA、两段式卡片、骨架屏、`PlaylistDrawer` `min-height: 56vh`、`<keep-alive>` + `scrollKeeperMixin`；移除前后端音频下载功能、固定全局 `.site-header` 并接入 `--header-h` 观测、实现 `RankBoard` 移动端与桌面端虚拟滚动及单测、更新 `README.md` | PWA 与抽屉高度在上一轮通过；`P7-05` 收尾与 `P7-06` 改动因旧 `cwd` 被删未运行终端命令 | 在 `/home/projects/_ai-apps/xyz-podcast` 删除 `src/handlers/download.js`、运行 `npm test`、页面实测后提交并 `npm run deploy` |

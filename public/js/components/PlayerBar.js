@@ -1,4 +1,3 @@
-import { buildAudioDownloadUrl } from "../api.js";
 import { PLAYBACK_RATES } from "../storage.js";
 import { formatDurationSeconds } from "../utils.js";
 import AppIcon from "./AppIcon.js";
@@ -43,10 +42,6 @@ export default {
       if (this.player.loopMode === "repeat-all") return "repeat";
       return "arrow-right";
     },
-    downloadUrl() {
-      if (!this.track?.enclosureUrl) return "";
-      return buildAudioDownloadUrl(this.track.enclosureUrl, this.track.title);
-    },
     rates() {
       return PLAYBACK_RATES;
     },
@@ -87,7 +82,7 @@ export default {
             <div class="mini-meta">
               <div class="mini-title">{{ track.title }}</div>
               <div class="mini-sub tabular">
-                {{ formatDurationSeconds(displayCurrentTime) }} / {{ formatDurationSeconds(effectiveDuration) }}
+                <span>{{ formatDurationSeconds(displayCurrentTime) }} / {{ formatDurationSeconds(effectiveDuration) }}</span>
                 <span v-if="track.podcastName"> · {{ track.podcastName }}</span>
               </div>
             </div>
@@ -96,12 +91,12 @@ export default {
           <div class="mini-controls">
             <button
               type="button"
-              class="skip-chip-btn"
+              class="skip-icon-btn"
               @click="playerActions.skipBy(-15)"
               title="后退 15 秒"
+              aria-label="后退 15 秒"
             >
-              <app-icon name="rotate-ccw" :size="14" />
-              <span>15s</span>
+              <app-icon name="skip-back-15" :size="24" />
             </button>
 
             <button
@@ -117,17 +112,17 @@ export default {
 
             <button
               type="button"
-              class="skip-chip-btn"
+              class="skip-icon-btn"
               @click="playerActions.skipBy(30)"
               title="前进 30 秒"
+              aria-label="前进 30 秒"
             >
-              <span>30s</span>
-              <app-icon name="rotate-cw" :size="14" />
+              <app-icon name="skip-forward-30" :size="24" />
             </button>
 
             <button
               type="button"
-              class="player-circle-btn"
+              class="player-circle-btn mini-list-btn"
               @click="playerActions.setPlaylistOpen(true)"
               title="播放列表"
             >
@@ -136,7 +131,7 @@ export default {
 
             <button
               type="button"
-              class="player-circle-btn"
+              class="player-circle-btn mini-expand-btn"
               @click="playerActions.setExpanded(true)"
               title="展开全屏播放器"
             >
@@ -199,9 +194,8 @@ export default {
               <app-icon name="skip-back" :size="22" />
             </button>
 
-            <button type="button" class="transport-skip" @click="playerActions.skipBy(-15)" title="后退 15 秒">
-              <app-icon name="rotate-ccw" :size="18" />
-              <span>-15s</span>
+            <button type="button" class="transport-skip" @click="playerActions.skipBy(-15)" title="后退 15 秒" aria-label="后退 15 秒">
+              <app-icon name="skip-back-15" :size="28" />
             </button>
 
             <button type="button" class="transport-play" @click="playerActions.togglePlay()" :title="player.isPlaying ? '暂停' : '播放'">
@@ -210,9 +204,8 @@ export default {
               <app-icon v-else name="play" :size="28" />
             </button>
 
-            <button type="button" class="transport-skip" @click="playerActions.skipBy(30)" title="前进 30 秒">
-              <app-icon name="rotate-cw" :size="18" />
-              <span>+30s</span>
+            <button type="button" class="transport-skip" @click="playerActions.skipBy(30)" title="前进 30 秒" aria-label="前进 30 秒">
+              <app-icon name="skip-forward-30" :size="28" />
             </button>
 
             <button type="button" class="player-circle-btn" @click="playerActions.playNext()" title="下一集">
@@ -241,11 +234,6 @@ export default {
               <app-icon :name="loopIcon" :size="18" />
               <span>{{ loopLabel }}</span>
             </button>
-
-            <a v-if="downloadUrl" class="util-btn" :href="downloadUrl" download>
-              <app-icon name="download" :size="18" />
-              <span>下载音频</span>
-            </a>
 
             <button type="button" class="util-btn" @click="playerActions.setPlaylistOpen(true)">
               <app-icon name="list-music" :size="18" />

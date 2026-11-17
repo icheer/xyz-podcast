@@ -108,12 +108,3 @@ export async function fetchEpisodeDetail(eid) {
   episodeDetailCache.set(eid, data);
   return data;
 }
-
-export function buildAudioDownloadUrl(audioUrl, title = "") {
-  if (!audioUrl) return "";
-  const search = new URLSearchParams({
-    url: audioUrl,
-    filename: title || "episode",
-  });
-  return `/api/audio/download?${search.toString()}`;
-}

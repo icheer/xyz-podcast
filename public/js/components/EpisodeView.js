@@ -1,4 +1,4 @@
-import { buildAudioDownloadUrl, fetchEpisodeDetail } from "../api.js";
+import { fetchEpisodeDetail } from "../api.js";
 import { resolveResumeSeconds } from "../storage.js";
 import {
   formatCount,
@@ -48,10 +48,6 @@ export default {
     },
     shownotesHtml() {
       return renderShownotesHtml(this.episode?.shownotes || "");
-    },
-    downloadUrl() {
-      if (!this.episode?.enclosureUrl) return "";
-      return buildAudioDownloadUrl(this.episode.enclosureUrl, this.episode.title);
     },
     isPaidContent() {
       const p = this.episode?.payType;
@@ -157,7 +153,9 @@ export default {
         </a>
       </div>
 
-      <div v-if="loading" class="state-box">正在实时获取单集音频与热评...</div>
+      <div v-if="loading" class="skeleton-list" aria-label="加载中">
+        <div v-for="n in 3" :key="n" class="skeleton-card"></div>
+      </div>
 
       <div v-else-if="errorMsg" class="state-box error">
         <p>{{ errorMsg }}</p>
@@ -211,11 +209,6 @@ export default {
               <app-icon :name="isInQueue ? 'check' : 'plus'" :size="16" />
               <span>{{ isInQueue ? '已在队列中' : '加入播放列表' }}</span>
             </button>
-
-            <a v-if="downloadUrl" class="btn" :href="downloadUrl" download>
-              <app-icon name="download" :size="16" />
-              <span>下载音频</span>
-            </a>
           </div>
         </section>
 

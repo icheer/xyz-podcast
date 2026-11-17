@@ -1,0 +1,40 @@
+{
+  "id": "/",
+  "name": "小宇宙热榜 · XYZ Podcast",
+  "short_name": "小宇宙热榜",
+  "description": "小宇宙热门播客与单集排行榜及在线收听端",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#f6f5f0",
+  "theme_color": "#e04f26",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon.png",
+      "sizes": "256x256",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ],
+  "categories": ["music", "news", "entertainment"],
+  "lang": "zh-CN"
+}

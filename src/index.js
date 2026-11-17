@@ -1,7 +1,6 @@
 import { runSyncBatch } from "./db/sync.js";
 import { handleAdminSync, handleAdminSyncStatus } from "./handlers/admin.js";
 import { handleBoardQuery, handleBoardsMeta } from "./handlers/boards.js";
-import { handleAudioDownload } from "./handlers/download.js";
 import { handleEpisodeDetail, handlePodcastDetail } from "./handlers/xiaoyuzhou.js";
 import { errorJson, json } from "./utils/http.js";
 
@@ -70,9 +69,6 @@ async function handleApi(request, env, _ctx, url) {
     return handleEpisodeDetail(episodeMatch[1], env);
   }
 
-  if (path === "/api/audio/download" && (method === "GET" || method === "HEAD")) {
-    return handleAudioDownload(request, url);
-  }
 
   if (path === "/api/admin/sync" && method === "POST") {
     return handleAdminSync(request, env);

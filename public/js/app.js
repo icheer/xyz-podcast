@@ -67,7 +67,11 @@ const routes = [
 const router = createRouter({
   history: createWebHistory(),
   routes,
-  scrollBehavior(_to, _from, savedPosition) {
+  scrollBehavior(to, _from, savedPosition) {
+    if (to.meta?.board || to.name === "PodcastView") {
+      // RankBoard & PodcastView live inside <keep-alive> and restore their own scrollY
+      return false;
+    }
     if (savedPosition) return savedPosition;
     return { top: 0 };
   },
@@ -89,6 +93,7 @@ const AppRoot = {
       searchQuery: "",
       boardMeta: {},
       theme: prefs.theme,
+      deferredInstallPrompt: null,
       toastMessage: "",
       toastTimer: null,
       pendingSeekSeconds: null,
@@ -156,20 +161,82 @@ const AppRoot = {
       return Boolean(this.getCurrentTrack());
     },
   },
+  watch: {
+    "$route.fullPath"() {
+      this.$nextTick(() => this.syncHeaderHeight());
+    },
+    syncBadgeText() {
+      this.$nextTick(() => this.syncHeaderHeight());
+    },
+    deferredInstallPrompt() {
+      this.$nextTick(() => this.syncHeaderHeight());
+    },
+  },
   mounted() {
     this.applyTheme();
     this.loadMeta();
     this.restoreCurrentTrackOnBoot();
     this.setupMediaSessionHandlers();
+    this.registerPwa();
+    this.initHeaderObserver();
     window.addEventListener("pagehide", this.flushProgressNow);
     window.addEventListener("beforeunload", this.flushProgressNow);
   },
   beforeUnmount() {
     this.flushProgressNow();
+    this.destroyHeaderObserver();
     window.removeEventListener("pagehide", this.flushProgressNow);
     window.removeEventListener("beforeunload", this.flushProgressNow);
   },
   methods: {
+    syncHeaderHeight() {
+      const el = this.$refs.siteHeader;
+      if (!el || typeof document === "undefined") return;
+      const h = Math.ceil(el.getBoundingClientRect().height);
+      if (h > 0) {
+        document.documentElement.style.setProperty("--header-h", `${h}px`);
+      }
+    },
+    initHeaderObserver() {
+      this._headerResizeObserver = null;
+      this.syncHeaderHeight();
+      const el = this.$refs.siteHeader;
+      if (el && typeof ResizeObserver !== "undefined") {
+        this._headerResizeObserver = new ResizeObserver(() => this.syncHeaderHeight());
+        this._headerResizeObserver.observe(el);
+      }
+      window.addEventListener("resize", this.syncHeaderHeight, { passive: true });
+    },
+    destroyHeaderObserver() {
+      if (this._headerResizeObserver) {
+        this._headerResizeObserver.disconnect();
+        this._headerResizeObserver = null;
+      }
+      window.removeEventListener("resize", this.syncHeaderHeight);
+    },
+    onNavClick(path) {
+      if (this.$route.path === path) {
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      }
+    },
+    registerPwa() {
+      if ("serviceWorker" in navigator) {
+        navigator.serviceWorker.register("/sw.js").catch(() => {});
+      }
+      window.addEventListener("beforeinstallprompt", (evt) => {
+        evt.preventDefault();
+        this.deferredInstallPrompt = evt;
+      });
+      window.addEventListener("appinstalled", () => {
+        this.deferredInstallPrompt = null;
+      });
+    },
+    async installPwa() {
+      if (!this.deferredInstallPrompt) return;
+      this.deferredInstallPrompt.prompt();
+      await this.deferredInstallPrompt.userChoice.catch(() => {});
+      this.deferredInstallPrompt = null;
+    },
     async loadMeta() {
       try {
         this.boardMeta = await fetchBoardsMeta();
@@ -179,6 +246,11 @@ const AppRoot = {
     },
     applyTheme() {
       document.documentElement.setAttribute("data-theme", this.theme);
+      const color = this.theme === "dark" ? "#111114" : "#f7f4ec";
+      const metaTheme = document.querySelector('meta[name="theme-color"]');
+      if (metaTheme) metaTheme.setAttribute("content", color);
+      const appleBar = document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]');
+      if (appleBar) appleBar.setAttribute("content", this.theme === "dark" ? "black-translucent" : "default");
     },
     toggleTheme() {
       this.theme = this.theme === "dark" ? "light" : "dark";
@@ -545,10 +617,10 @@ const AppRoot = {
   },
   template: `
     <div class="app-shell" :class="{ 'has-player': hasCurrentTrack }">
-      <header class="site-header">
+      <header class="site-header" ref="siteHeader">
         <div class="container">
           <div class="header-top">
-            <router-link to="/" class="brand">
+            <router-link to="/" class="brand" @click="onNavClick('/')">
               <div class="brand-mark">
                 <app-icon name="headphones" :size="18" />
               </div>
@@ -559,6 +631,17 @@ const AppRoot = {
             </router-link>
 
             <div class="header-actions">
+              <button
+                v-if="deferredInstallPrompt"
+                type="button"
+                class="icon-btn"
+                @click="installPwa"
+                title="安装桌面应用"
+              >
+                <app-icon name="download" :size="15" />
+                <span>安装</span>
+              </button>
+
               <button
                 type="button"
                 class="icon-btn"
@@ -588,6 +671,7 @@ const AppRoot = {
                 :to="tab.path"
                 class="board-tab"
                 :class="{ active: $route.path === tab.path }"
+                @click="onNavClick(tab.path)"
               >{{ tab.label }}</router-link>
             </nav>
 
@@ -616,12 +700,15 @@ const AppRoot = {
 
       <main class="main-content">
         <div class="container">
-          <router-view v-slot="{ Component }">
-            <component
-              :is="Component"
-              :search-query="searchQuery"
-              :board-meta="boardMeta"
-            />
+          <router-view v-slot="{ Component, route }">
+            <keep-alive include="RankBoard,PodcastView" :max="8">
+              <component
+                :is="Component"
+                :key="route.meta && route.meta.board ? 'board-' + route.meta.board : (route.name === 'PodcastView' ? 'podcast-' + route.params.pid : route.fullPath)"
+                :search-query="searchQuery"
+                :board-meta="boardMeta"
+              />
+            </keep-alive>
           </router-view>
         </div>
       </main>
