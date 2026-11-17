@@ -163,6 +163,15 @@
 
 ---
 
+## 前端设计审查（2026-11-17）
+
+- [x] **UI-01** 视觉与交互动效走查，仅提出建议
+  - 验证：Browser MCP 成功访问线上/本地桌面页面；Playwright 截图检查 390×844、1280×800、375×667，覆盖四榜、频道/单集、播放/暂停、迷你/全屏播放器、单条队列、21 条热评与深色频道。
+  - 发现：手机 Header 146px；播客榜排序方向换行；迷你栏长标题空间不足；单条队列留白过多；深色次要按钮突兀；桌面频道头部与长评论层级待改善。建议及动效规格见 `DESIGN_REVIEW.md`，截图在 `/tmp/xyz-review/`。
+  - 环境限制解除后 Wrangler 与浏览器均已运行成功。未修改产品代码或部署，未将本次审查视作 P7-05/P7-06 全面回归验收。
+
+---
+
 ## 交接日志（Handover Log）
 
 | 日期 | 阶段/任务 | 完成/变更摘要 | 验证状态 | 遗留/下一步 |
@@ -173,3 +182,5 @@
 | 2026-11-17 | Phase 3 (`P3-01`~`P3-04`) | 消除多余嵌套目录将仓库移至根路径；验证小宇宙官网支持浏览器 CORS 直连（`access-control-allow-origin` 动态回显 Origin），将解析器抽至前后端共享 `public/js/xyzParser.js`，后端保留 `XYZ_RELAY_URL` 可选兜底与 `/api/audio/download` | `npm test` 15/15 通过；真实浏览器（Playwright+Obscura）实测从 `http://127.0.0.1:8787/` CORS 请求小宇宙播客页与单集页均返回 `200` 并成功解析 | 进入 Phase 4 (`P4-01`~`P4-04`) |
 | 2026-11-17 | Phase 4 ~ 7 (`P4-01`~`P7-03`) | 完成全部 Vue 3 Options API 前端视图（4 榜单/频道页/单集页）、全局播放器与播控抽屉、`SortableJS` 列表调序、`localStorage` 续播、Shownotes 时间戳跳转及 `test/frontend.test.js` | `npm test` **19/19** 通过；Playwright + Obscura 实测手机 (`390x844`) 与桌面 (`1280x800`) 全流程通过，0 控制台/页面报错 | 推进 `P7-04` / `P7-05` |
 | 2026-11-17 | `P7-04` ~ `P7-06` | 完成线上首次部署（`https://xyz-podcast.icheer.workers.dev`）；新增 PWA、两段式卡片、骨架屏、`PlaylistDrawer` `min-height: 56vh`、`<keep-alive>` + `scrollKeeperMixin`；移除前后端音频下载功能、固定全局 `.site-header` 并接入 `--header-h` 观测、实现 `RankBoard` 移动端与桌面端虚拟滚动及单测、更新 `README.md` | PWA 与抽屉高度在上一轮通过；`P7-05` 收尾与 `P7-06` 改动因旧 `cwd` 被删未运行终端命令 | 在 `/home/projects/_ai-apps/xyz-podcast` 删除 `src/handlers/download.js`、运行 `npm test`、页面实测后提交并 `npm run deploy` |
+
+| 2026-11-17 | UI-01 | 完成真实浏览器视觉走查并更新 DESIGN_REVIEW.md，提出布局、深色主题与动效建议 | MCP + Playwright 手机/桌面/短屏截图及操作通过 | 等待用户决定设计实施范围；P7 状态保持 |

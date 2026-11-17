@@ -281,12 +281,13 @@ npm run deploy               # npx wrangler deploy
 ## 9. 当前进度与交接快照
 
 - **最后更新**：2026-11-17
+- **本轮设计审查**：2026-11-17 环境限制解除后，已通过 Browser MCP 与 Playwright 完成四榜、频道/单集、播放器/队列、评论和深色频道的手机/桌面/短屏视觉走查。建议见 `DESIGN_REVIEW.md`，截图在 `/tmp/xyz-review/`；仅更新审查文档，未修改产品代码或部署，P7-05/P7-06 状态保持。
 - **当前阶段**：`P7-04 已部署上线；P7-05 & P7-06 (移除下载功能、固定顶栏、榜单虚拟滚动) 代码已落盘，待根路径复测、清理遗留文件、提交并重新部署`
 - **已完成事项**：
   - `Phase 0` ~ `Phase 7`（`P7-04` 已部署至 `https://xyz-podcast.icheer.workers.dev`，`wrangler.toml` 已绑定 D1 `224bbab0-b5e7-4547-9735-9038d63b8f53`）。
   - `P7-05`：新增完整 PWA（`site.webmanifest`、`sw.js`、`icon.svg`、`icon-192.png`、`icon.png`、`icon-512.png`、动态 `theme-color`、`beforeinstallprompt` 安装按钮）、重构移动端两段式榜单项卡片、骨架屏、修复播放列表底部弹窗 `min-height: 56vh`（实测 `473px`）、修正 `app.css` 字重 `500/700` 与合成层问题、新增 `<keep-alive>` + `scrollKeeperMixin` 实现详情页后退不刷新列表并保留滚动位置，并编写 `README.md`。
   - `P7-06`：移除前后端所有音频下载入口（移除 `EpisodeView.js` / `PlayerBar.js` "下载音频"按钮、`api.js` `buildAudioDownloadUrl` 与 `src/index.js` `/api/audio/download` 路由）；将 `.site-header` 改为 `position: fixed` 并通过 `ResizeObserver` 动态同步 `--header-h`；为 `RankBoard.js` 移动端卡片流与 PC 表格接入 `computeVirtualWindow` 动态测量虚拟滚动并补充单测；重构移动端 `.mini-player` 排版，并在 `AppIcon.js` 新增数字内嵌回环箭头的 `skip-back-15` / `skip-forward-30` 图标，显著扩展标题与进度显示宽度。
-- **当前注意**：由于原会话工作目录 `/home/projects/_ai-apps/xyz-podcast/xyz-podcast` 已从磁盘删除，当前工作区仅能进行文件编辑，无法直接运行 `run_command`。
+- **当前注意**：旧目录问题已不影响当前会话；根目录命令、Wrangler dev 与本地浏览器已于本轮成功运行。P7-05/P7-06 仍需独立完成全部回归、清理与部署。
 - **下一位 Agent / 用户终端的精确动作**：
   1. 删除已下线的下载代理文件并运行单测：
      `cd /home/projects/_ai-apps/xyz-podcast && rm -f src/handlers/download.js && npm test`
