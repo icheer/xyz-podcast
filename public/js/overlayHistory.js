@@ -4,7 +4,7 @@ export function createOverlayHistory(router, onChange, onError) {
   const read = () => {
     const value = window.history.state?.[key];
     return Array.isArray(value)
-      ? [...new Set(value.filter(name => name === "player" || name === "queue"))]
+      ? [...new Set(value.filter(name => ["player", "queue", "about"].includes(name)))]
       : [];
   };
   let updating = false;

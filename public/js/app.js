@@ -12,6 +12,7 @@ import {
 } from "./storage.js";
 import { formatDurationSeconds } from "./utils.js";
 import AppIcon from "./components/AppIcon.js";
+import AboutDialog from "./components/AboutDialog.js";
 import EpisodeView from "./components/EpisodeView.js";
 import PlayerBar from "./components/PlayerBar.js";
 import PlaylistDrawer from "./components/PlaylistDrawer.js";
@@ -84,6 +85,7 @@ const AppRoot = {
   name: "XyzPodcastApp",
   components: {
     AppIcon,
+    AboutDialog,
     PlayerBar,
     PlaylistDrawer,
   },
@@ -95,6 +97,7 @@ const AppRoot = {
     return {
       searchQuery: "",
       searchOpen: false,
+      aboutOpen: false,
       boardMeta: {},
       theme: prefs.theme,
       deferredInstallPrompt: null,
@@ -177,7 +180,8 @@ const AppRoot = {
     this._overlayHistory = createOverlayHistory(router, stack => {
       this.player.expanded = stack.includes("player") && this.hasCurrentTrack;
       this.player.playlistOpen = stack.includes("queue");
-    }, () => this.showToast("切换播放器视图失败，请重试"));
+      this.aboutOpen = stack.includes("about");
+    }, () => this.showToast("切换弹窗失败，请重试"));
     this._overlayHistory.sync();
     this.applyTheme();
     this.loadMeta();
@@ -196,6 +200,10 @@ const AppRoot = {
     window.removeEventListener("beforeunload", this.flushProgressNow);
   },
   methods: {
+    setAboutOpen(open) {
+      if (!open) this.aboutOpen = false;
+      return this._overlayHistory.set("about", Boolean(open));
+    },
     setExpanded(open) {
       if (!open) this.player.expanded = false;
       return this._overlayHistory.set("player", Boolean(open));
@@ -642,7 +650,7 @@ const AppRoot = {
       <header class="site-header" ref="siteHeader">
         <div class="container">
           <div class="header-top">
-            <router-link to="/" class="brand" @click="onNavClick('/')">
+            <button type="button" class="brand" aria-label="关于小宇宙播客热榜" aria-haspopup="dialog" :aria-expanded="aboutOpen" @click="setAboutOpen(true)">
               <div class="brand-mark">
                 <app-icon name="headphones" :size="18" />
               </div>
@@ -650,7 +658,7 @@ const AppRoot = {
                 <div class="brand-title">小宇宙播客热榜</div>
                 <div class="brand-sub" v-if="syncBadgeText" :title="syncBadgeText">{{ syncBadgeText }}</div>
               </div>
-            </router-link>
+            </button>
 
             <div class="header-actions">
               <button v-if="isBoardRoute" type="button" class="icon-btn mobile-search-toggle" aria-label="搜索榜单" :aria-expanded="searchOpen || !!searchQuery" @click="searchOpen = !searchOpen; searchOpen && $nextTick(() => $refs.searchInput.focus())"><app-icon name="search" :size="17" /></button>
@@ -753,6 +761,7 @@ const AppRoot = {
 
       <player-bar />
       <playlist-drawer />
+      <about-dialog :open="aboutOpen" @close="setAboutOpen(false)" />
 
       <transition name="toast"><div v-if="toastMessage" class="toast-pill" role="status">{{ toastMessage }}</div></transition>
     </div>
