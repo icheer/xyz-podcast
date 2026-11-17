@@ -19,6 +19,8 @@ export default {
       episode: null,
       comments: [],
       expandedReplies: {},
+      shownotesExpanded: false,
+      shownotesCanCollapse: false,
       sourceUrl: "",
       limitReason: "",
     };
@@ -68,13 +70,41 @@ export default {
       },
     },
   },
+  beforeUnmount() {
+    this._shownotesObserver?.disconnect();
+  },
   methods: {
     formatCount,
     formatDateTime,
     formatDurationSeconds,
+    observeShownotes() {
+      this._shownotesObserver?.disconnect();
+      const body = this.$refs.shownotesBody;
+      if (!body) return;
+      const measure = () => {
+        this.shownotesCanCollapse = body.getBoundingClientRect().height > 241;
+      };
+      measure();
+      this._shownotesObserver = new ResizeObserver(measure);
+      this._shownotesObserver.observe(body);
+    },
+    toggleShownotes() {
+      this.shownotesExpanded = !this.shownotesExpanded;
+      if (!this.shownotesExpanded) {
+        const section = this.$refs.shownotesSection;
+        const headerHeight = document.querySelector('.site-header')?.getBoundingClientRect().height || 0;
+        if (section.getBoundingClientRect().top < headerHeight) {
+          window.scrollTo({ top: window.scrollY + section.getBoundingClientRect().top - headerHeight - 16 });
+          this.$refs.shownotesTitle.focus({ preventScroll: true });
+        }
+      }
+    },
     async loadData() {
       if (!this.eid) return;
       this.loading = true;
+      this._shownotesObserver?.disconnect();
+      this.shownotesExpanded = false;
+      this.shownotesCanCollapse = false;
       this.errorMsg = "";
       try {
         const res = await fetchEpisodeDetail(this.eid);
@@ -86,6 +116,7 @@ export default {
         this.errorMsg = err?.message || "加载单集详情失败";
       } finally {
         this.loading = false;
+        this.$nextTick(this.observeShownotes);
       }
     },
     buildTrack() {
@@ -225,17 +256,26 @@ export default {
           </span>
         </div>
 
-        <section class="section-card reading-section">
-          <div class="section-title">
+        <section class="section-card reading-section" ref="shownotesSection">
+          <div class="section-title" ref="shownotesTitle" tabindex="-1">
             <span>Shownotes 节目简介</span>
             <span v-if="hasShownotesTimestamps" style="font-size: 12px; font-weight: 400; color: var(--text-muted);">点击文内时间戳可跳转</span>
           </div>
-          <div
-            v-if="shownotesHtml"
-            class="shownotes-body"
-            v-html="shownotesHtml"
-            @click="onShownotesClick"
-          ></div>
+          <template v-if="shownotesHtml">
+            <div :id="'shownotes-' + eid" class="shownotes-preview" :class="{ 'is-collapsed': !shownotesExpanded, 'has-fade': shownotesCanCollapse && !shownotesExpanded }">
+              <div
+                ref="shownotesBody"
+                class="shownotes-body"
+                :inert="shownotesCanCollapse && !shownotesExpanded ? true : null"
+                v-html="shownotesHtml"
+                @click="onShownotesClick"
+              ></div>
+            </div>
+            <button v-if="shownotesCanCollapse" type="button" class="shownotes-toggle" :aria-expanded="shownotesExpanded" :aria-controls="'shownotes-' + eid" @click="toggleShownotes">
+              <span>{{ shownotesExpanded ? '收起节目简介' : '展开完整节目简介' }}</span>
+              <app-icon :name="shownotesExpanded ? 'chevron-up' : 'chevron-down'" :size="16" />
+            </button>
+          </template>
           <p v-else style="color: var(--text-muted);">暂无节目简介</p>
         </section>
 

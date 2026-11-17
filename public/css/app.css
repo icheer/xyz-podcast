@@ -997,6 +997,11 @@ img {
 }
 
 /* ---------- Shownotes ---------- */
+.shownotes-preview.is-collapsed { max-height: 240px; overflow: hidden; overflow-anchor: none; }
+.shownotes-preview.has-fade { mask-image: linear-gradient(to bottom, #000 calc(100% - 64px), transparent); }
+.shownotes-toggle { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; padding: 12px 0 2px; color: var(--text-secondary); font-size: 13px; }
+.shownotes-toggle:hover { color: var(--text); }
+
 .shownotes-body {
   font-size: 14.5px;
   line-height: 1.75;
