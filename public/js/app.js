@@ -289,7 +289,7 @@ const AppRoot = {
       this._boardSwipeClickUntil = performance.now() + 350;
       const index = BOARD_TABS.findIndex(tab => tab.path === swipe.path);
       const next = BOARD_TABS[index + (dx < 0 ? 1 : -1)];
-      if (next) this.$router.push(next.path);
+      if (next) this.$router.replace(next.path);
     },
     cancelBoardSwipe() {
       this._boardSwipe = null;
@@ -752,6 +752,7 @@ const AppRoot = {
                 v-for="tab in boardTabs"
                 :key="tab.path"
                 :to="tab.path"
+                replace
                 class="board-tab"
                 :class="{ active: $route.path === tab.path }"
                 @click="onNavClick(tab.path)"
