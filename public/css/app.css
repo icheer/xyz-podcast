@@ -250,6 +250,16 @@ img {
   outline: none;
 }
 
+/* Use the app's accessible clear button instead of the browser's duplicate. */
+.search-input::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+  display: none;
+}
+
+.search-input::-ms-clear {
+  display: none;
+}
+
 .search-input::placeholder {
   color: var(--text-muted);
 }
