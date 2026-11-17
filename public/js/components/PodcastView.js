@@ -219,7 +219,10 @@ export default {
           </div>
 
           <div class="ep-list">
-            <article v-for="ep in episodes" :key="ep.eid" class="ep-row">
+            <article v-for="ep in episodes" :key="ep.eid" class="ep-row" role="link" tabindex="0" :aria-label="ep.title"
+              @click="$router.push('/episode/' + ep.eid)"
+              @keydown.enter.self="$router.push('/episode/' + ep.eid)"
+              @keydown.space.self.prevent="$router.push('/episode/' + ep.eid)">
               <div class="ep-row-top">
                 <img v-cover
                   class="cover-thumb"
@@ -229,25 +232,23 @@ export default {
                   loading="lazy"
                 />
                 <div style="flex:1; min-width:0;">
-                  <router-link :to="'/episode/' + ep.eid" class="ep-row-title" style="display:block;">
+                  <h3 class="ep-row-title">
                     {{ ep.title }}
-                  </router-link>
+                  </h3>
                   <p v-if="ep.description" class="ep-row-desc">{{ ep.description }}</p>
                 </div>
               </div>
 
               <div class="ep-row-footer">
-                <div class="card-stats-line tabular">
+                <div class="card-stats-line episode-stats tabular">
                   <span>{{ formatDateTime(ep.pubDate) }}</span>
                   <span class="stat-strong">{{ formatDurationSeconds(ep.duration) }}</span>
                   <span>▶ {{ formatCount(ep.playCount) }}</span>
                   <span>💬 {{ formatCount(ep.commentCount) }}</span>
-                  <span v-if="progressPercent(ep.eid, ep.duration) > 0" class="genre-tag">
-                    已听 {{ progressPercent(ep.eid, ep.duration) }}%
-                  </span>
                 </div>
 
-                <div style="display:flex; gap:6px;">
+                <span v-if="progressPercent(ep.eid, ep.duration) > 0" class="genre-tag ep-progress">已听 {{ progressPercent(ep.eid, ep.duration) }}%</span>
+                <div class="ep-actions" @click.stop>
                   <button
                     type="button"
                     class="btn sm"
@@ -261,7 +262,6 @@ export default {
                     <app-icon :name="isInQueue(ep.eid) ? 'check' : 'plus'" :size="14" />
                     <span>{{ isInQueue(ep.eid) ? '已在队列' : '队列' }}</span>
                   </button>
-                  <router-link :to="'/episode/' + ep.eid" class="btn sm">详情</router-link>
                 </div>
               </div>
             </article>
