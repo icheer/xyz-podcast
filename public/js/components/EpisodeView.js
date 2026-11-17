@@ -50,6 +50,11 @@ export default {
     shownotesHtml() {
       return renderShownotesHtml(this.episode?.shownotes || "");
     },
+    hasShownotesTimestamps() {
+      const template = document.createElement("template");
+      template.innerHTML = this.shownotesHtml;
+      return Boolean(template.content.querySelector("button.ts-jump-btn[data-seconds]"));
+    },
     isPaidContent() {
       const p = this.episode?.payType;
       return Boolean(p && p !== "FREE");
@@ -223,7 +228,7 @@ export default {
         <section class="section-card reading-section">
           <div class="section-title">
             <span>Shownotes 节目简介</span>
-            <span style="font-size: 12px; font-weight: 400; color: var(--text-muted);">点击文内时间戳可跳转</span>
+            <span v-if="hasShownotesTimestamps" style="font-size: 12px; font-weight: 400; color: var(--text-muted);">点击文内时间戳可跳转</span>
           </div>
           <div
             v-if="shownotesHtml"
