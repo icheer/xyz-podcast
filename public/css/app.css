@@ -1783,7 +1783,7 @@ button.queue-info { text-align: left; white-space: normal; }
 /* Channel metadata gets its own row so it never competes with actions. */
 .ep-row { cursor: pointer; }
 .ep-row:focus-visible { outline: 1px solid var(--text-muted); outline-offset: 3px; }
-.ep-row-footer { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; }
+.ep-row-footer { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; margin-inline-start: 64px; }
 .episode-stats { grid-column: 1 / -1; flex-wrap: nowrap; gap: 10px; margin: 0; }
 .episode-stats > span { white-space: nowrap; }
 .ep-actions { grid-column: 2; grid-row: 2; display: flex; gap: 10px; }
@@ -1792,3 +1792,5 @@ button.queue-info { text-align: left; white-space: normal; }
   .ep-row-footer { display: flex; }
   .episode-stats { flex: 1; }
 }
+
+@media (max-width: 359px) { .episode-stats { gap: 3px; font-size: 10.5px; } }
