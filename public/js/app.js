@@ -626,7 +626,7 @@ const AppRoot = {
                 <app-icon name="headphones" :size="18" />
               </div>
               <div style="min-width:0;">
-                <div class="brand-title">小宇宙热榜收听</div>
+                <div class="brand-title">小宇宙播客热榜</div>
                 <div class="brand-sub" v-if="syncBadgeText" :title="syncBadgeText">{{ syncBadgeText }}</div>
               </div>
             </router-link>

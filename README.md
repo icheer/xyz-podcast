@@ -187,6 +187,18 @@ for i in $(seq 1 15); do
 done
 ```
 
+### 确认定时同步是否完成
+
+在浏览器打开 `/api/boards/meta`：北京时间20:00这一轮对应当天 `YYYYMMDDT12`，08:00对应 `YYYYMMDDT00`。同时满足 `syncVersion` 为目标版本、`isComplete: true`，且四榜 `syncedCount` 等于 `total`，即可确认该轮已完整发布。仅看更新时间不足以确认成功；已有完整旧版本时，新一轮同步中的进度不会反映在此接口。
+
+查看运行中、失败原因和完成时间，使用 `GET /api/admin/sync/status` 并在 `X-Admin-Key` 中携带线上配置的密钥，或用已登录Wrangler执行只读查询：
+
+```bash
+npx wrangler d1 execute xyz-podcast-db --remote --command "SELECT run_id, status, current_board, current_offset, retry_count, last_error, started_at, finished_at FROM sync_runs ORDER BY started_at DESC LIMIT 5"
+```
+
+`status = completed` 且 `active_sync_version` 已切换至该 `run_id` 表示完整同步发布成功；`running` 表示仍在分批接力，`failed` 查看 `last_error`。默认每批15页、每2分钟触发，按约93页规模通常需7次触发（约12分钟），不能要求20:00刚到即全部完成。数据库时间采用UTC，转换为北京时间需加8小时。
+
 ### 可选环境变量
 
 | 变量名 | 配置方式 | 说明 |
