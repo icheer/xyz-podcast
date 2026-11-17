@@ -230,8 +230,8 @@ img {
 
 .search-wrap:focus-within {
   background: var(--surface);
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-soft);
+  border-color: var(--border-strong);
+  box-shadow: none;
 }
 
 .search-wrap .search-icon {
@@ -1608,7 +1608,8 @@ img {
 :root { color-scheme: light; --button-bg: #fff; --button-text: #41414b; }
 [data-theme="dark"] { color-scheme: dark; --button-bg: #25252d; --button-text: #e4e4eb; }
 button, a, select { -webkit-tap-highlight-color: transparent; }
-button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible { outline: 1px solid var(--text-muted); outline-offset: 2px; }
+button:focus:not(:focus-visible), a:focus:not(:focus-visible), select:focus:not(:focus-visible), input:focus:not(:focus-visible), .search-input:focus-visible, [role="dialog"]:focus { outline: none; }
 button:disabled { opacity: .45; cursor: default; }
 .icon-btn, .btn:not(.primary), .select-ctrl, .circle-queue-btn { background: var(--button-bg); color: var(--button-text); }
 .btn, .board-tab, .pill-play-btn, .circle-queue-btn { transition: background-color 160ms, color 160ms, border-color 160ms, transform 140ms; }
