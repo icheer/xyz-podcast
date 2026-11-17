@@ -145,7 +145,7 @@ xyz-podcast/
     - 特别注意：需透传 `episode.podcast.pid`，使从首页单集榜点进来的用户可一键跳转到所属播客频道页 `/podcast/:pid`！
     - 若 `payType` 非免费（如 `PAY_EPISODE` / `PAY_PODCAST`），需在 UI 标注提示（可能仅提供试听音频）。
   - 评论路径：`props.pageProps.comments`
-    - 约 **20~21 条热评**，含 `id`, `pinned`, `text`, `likeCount`, `createdAt`, `ipLoc`, `badges`, `author` (`nickname`, `avatar.picture.smallPicUrl/thumbnailUrl`), `replies[]`（二级回复）。
+    - 约 **20~21 条热评**（本轮抽查8集：21条样本均为1条置顶+20条普通；20条也可能已包含置顶。条数取决于上游原始列表，不固定截断；二级回复不计入父评论条数），含 `id`, `pinned`, `text`, `likeCount`, `createdAt`, `ipLoc`, `badges`, `author` (`nickname`, `avatar.picture.smallPicUrl/thumbnailUrl`), `replies[]`（二级回复）。
     - **已核实限制**：未登录网页端无评论分页 API，前端需展示提示「当前展示热门精选评论，查看更多请前往小宇宙 App」。
 - **音频 CDN (`media.xyzcdn.net`) 特性（已实测）**：
   - 支持 `Accept-Ranges: bytes`，`<audio src="https://media.xyzcdn.net/...">` 可直接播放并拖动进度条。
@@ -293,6 +293,7 @@ npm run deploy               # npx wrangler deploy
 - **最新滚动修正**：`UI-10` 根页面及播放器/队列滚动区已设置 `overscroll-behavior-y: none`；Chromium快速触摸滑动180帧固定播放栏bottom均为844px，正常滚动与计算样式验证通过。实体iPhone/Safari原生回弹尚待核对；未部署。
 - **最新品牌与同步检查**：`UI-11` 顶栏名称改为「小宇宙播客热榜」，本地浏览器验证通过，README补充成功判定方式。北京时间2026-11-17 20:10只读核实线上 `20261117T12` 仍running（75页/7341条，热门播客6400/8191），无重试/错误，尚未完整发布；未手动触发同步，未部署名称修改。默认每批15页，93页通常需7次Cron触发、约12分钟。
 - **最新Shownotes提示**：`UI-12` 仅在渲染后的Shownotes确有时间戳跳转按钮时显示提示；六组浏览器用例验证通过，页面错误0，未部署。
+- **最新评论核查**：`DATA-01` 抽查8个官网单集原始列表并与项目解析器比较：3例21条（1置顶+20普通）、3例20条无置顶、2例20条含1置顶；原始/解析条数一致，ID无重复，未发现项目计数bug。证据 `/tmp/xyz-comments/results.json`；上游置顶合并算法未公开，不假定有置顶必定21条，未修改产品代码。
 - **当前阶段**：`P7-04 已部署上线；P7-05 & P7-06 (移除下载功能、固定顶栏、榜单虚拟滚动) 代码已落盘，待根路径复测、清理遗留文件、提交并重新部署`
 - **已完成事项**：
   - `Phase 0` ~ `Phase 7`（`P7-04` 已部署至 `https://xyz-podcast.icheer.workers.dev`，`wrangler.toml` 已绑定 D1 `224bbab0-b5e7-4547-9735-9038d63b8f53`）。
