@@ -515,7 +515,6 @@ export default {
           :key="entry.key"
           :data-vindex="entry.index"
           class="rank-card"
-          :class="{ 'is-current': player.currentEid === entry.item.eid }"
           @click="openItem(entry.item)"
         >
           <div class="card-main-row">

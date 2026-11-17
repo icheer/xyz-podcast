@@ -1631,7 +1631,6 @@ button:disabled { opacity: .45; cursor: default; }
 .select-ctrl { width: 100%; min-width: 0; max-width: none; height: 38px; padding: 0 7px; font-size: 12px; }
 .board-summary { font-size: 11px; }
 .rank-card { padding: 15px 13px 10px; margin-bottom: 10px; border-color: transparent; box-shadow: 0 1px 2px rgba(24,24,27,.05); }
-.rank-card.is-current { background: var(--surface); border-color: var(--accent-soft); box-shadow: inset 3px 0 var(--accent); }
 .card-main-row { gap: 10px; }
 .rank-num { width: 18px; min-width: 18px; font-weight: 700; }
 .cover-thumb { width: 54px; height: 54px; border-radius: 10px; }
@@ -1641,10 +1640,13 @@ button:disabled { opacity: .45; cursor: default; }
 .genre-tag { background: var(--surface-soft); color: var(--text-secondary); border-radius: 5px; font-size: 10px; }
 .card-footer-row { border-top: 0; margin-top: 5px; padding-top: 0; }
 .card-stats-line { gap: 3px 8px; font-size: 11px; }
-.pill-play-btn { height: 44px; padding: 0 12px; background: transparent; }
-.circle-queue-btn { width: 44px; height: 44px; border-color: transparent; background: transparent; }
+.pill-play-btn { height: 28px; padding: 0 8px; border-radius: 6px; background: transparent; }
+.pill-play-btn.active { background: var(--accent-soft); color: var(--accent); }
+.circle-queue-btn { width: 28px; height: 28px; border: 0; border-radius: 0; background: transparent; }
+.circle-queue-btn.queued { border: 0; background: transparent; color: var(--accent); }
 .circle-queue-btn.queued { animation: queue-confirm 180ms ease-out; }
-.card-pill-actions { gap: 0; }
+.card-pill-actions { gap: 12px; }
+.table-actions { gap: 10px; }
 .hero-card { padding: 20px 16px; box-shadow: none; }
 .hero-title { font-size: 21px; line-height: 1.45; letter-spacing: -.025em; }
 .hero-main { gap: 16px; }
