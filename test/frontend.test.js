@@ -6,6 +6,7 @@ import {
   formatDurationSeconds,
   formatMinutes,
   formatPercent,
+  formatProgressBadge,
   injectTimestampButtons,
   parseTextWithTimestamps,
   parseTimestampToSeconds,
@@ -52,6 +53,14 @@ test("utils formatting helpers produce expected strings", () => {
   assert.equal(formatCount(428803), "42.9万");
   assert.equal(formatCount(520), "520");
   assert.equal(formatPercent(0.1536), "15.4%");
+  assert.equal(formatProgressBadge(null, 600), "");
+  assert.equal(formatProgressBadge({ currentTime: 3, duration: 600, finished: false }), "");
+  assert.equal(formatProgressBadge({ currentTime: 180, duration: 600, finished: false }), "已听 30%");
+  assert.equal(
+    formatProgressBadge({ currentTime: 180, duration: 600, finished: false }, 600, { includeTime: true }),
+    "已听 30% (03:00)"
+  );
+  assert.equal(formatProgressBadge({ currentTime: 0, duration: 600, finished: true }), "已播完");
 });
 
 test("parseTimestampToSeconds and injectTimestampButtons convert timestamps safely", () => {

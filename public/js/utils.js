@@ -58,6 +58,26 @@ export function formatDateTime(iso) {
 }
 
 /**
+ * Format saved episode progress into a unified badge label ("已播完", "已听 XX%", etc.).
+ */
+export function formatProgressBadge(
+  entry,
+  fallbackDurationSec = 0,
+  { includeTime = false, minSeconds = 5 } = {}
+) {
+  if (!entry) return "";
+  if (entry.finished) return "已播完";
+  const cur = Number(entry.currentTime) || 0;
+  if (!(cur > minSeconds)) return "";
+  const dur = Number(entry.duration) || Number(fallbackDurationSec) || 0;
+  if (dur > 0) {
+    const pct = Math.min(99, Math.max(1, Math.round((cur / dur) * 100)));
+    return includeTime ? `已听 ${pct}% (${formatDurationSeconds(cur)})` : `已听 ${pct}%`;
+  }
+  return includeTime ? `听至 ${formatDurationSeconds(cur)}` : "";
+}
+
+/**
  * Parse HH:MM:SS or MM:SS timestamp text into total seconds.
  */
 export function parseTimestampToSeconds(ts) {

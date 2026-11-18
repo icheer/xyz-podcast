@@ -146,26 +146,36 @@
 - [x] **P7-04** 首次线上部署与 D1 绑定
   - *验收标准*：完成 `wrangler login`、创建远程 D1 (`224bbab0-b5e7-4547-9735-9038d63b8f53`)、应用远程迁移、配置 `ADMIN_KEY` 与 `wrangler deploy`。
   - *验证结果*：已上线至 `https://xyz-podcast.icheer.workers.dev`，`/api/health` 返回 `{"ok":true,"db":"ok"}`，已开始冷启动同步。
-- [/] **P7-05** PWA 沉浸式体验、列表卡片重构、返回滚动保持与 `README.md`
+- [x] **P7-05** PWA 沉浸式体验、列表卡片重构、返回滚动保持与 `README.md`
   - *完成内容*：
     - PWA：`public/icon.svg`、`public/icon-192.png`、`public/icon.png` (256x256)、`public/icon-512.png`、`public/site.webmanifest`、`public/sw.js`、`index.html` PWA meta 与 `app.js` 注册/主题色同步。
     - 移动端卡片与播放器重构：`RankBoard.js` 两段式卡片（主标题占满全宽、底部虚线分隔数据与 `播放`/`+` 胶囊按钮）、加载骨架屏、`PlayerBar.js` 窄屏精简按钮、自适应安全区、`PlaylistDrawer.js` `min-height: 56vh` 防塌陷与顶部拖拽指示条。
     - 返回不刷新与滚动位置恢复：`app.js` 为 `RankBoard` / `PodcastView` 接入按路由区分 `:key` 的 `<keep-alive>`，抽离公共 `scrollKeeperMixin` (`public/js/utils.js`) 保存与恢复各列表的 `savedScrollY` 并管理 `IntersectionObserver` 激活态。
     - 最终 CSS 修正：统一 `font-weight` 为 `500/700`、移除 `backdrop-filter` 避免抽屉层透出底层文字、修复搜索框占位文字垂直居中；编写项目 `README.md`。
-  - *当前状态*：PWA 静态资源 `200`、抽屉高度 `473px`、零横向溢出均已在上一轮实测通过；**CSS 修正、`<keep-alive>` 返回滚动保持与 `README.md` 编写后，因本会话旧工作目录 `xyz-podcast/xyz-podcast` 已不存在导致 `run_command` 无法执行**，待在根目录 `/home/projects/_ai-apps/xyz-podcast` 下复测并标记 `[x]`。
-- [/] **P7-06** 移除音频下载功能、固定全局 Header、榜单虚拟滚动
+  - *验证结果*：后续 UI 走查与用户验收通过。
+- [x] **P7-06** 移除音频下载功能、固定全局 Header、榜单虚拟滚动
   - *完成内容*：
-    - 移除下载功能（版权合规）：删除 `EpisodeView.js` 与 `PlayerBar.js`「下载音频」按钮、删除 `public/js/api.js` `buildAudioDownloadUrl`、移除 `src/index.js` `/api/audio/download` 路由并清理 `test/parser.test.js` 对应测试用例（遗留未引用文件 `src/handlers/download.js` 待终端 `rm` 删除）。
+    - 移除下载功能（版权合规）：删除 `EpisodeView.js` 与 `PlayerBar.js`「下载音频」按钮、删除 `public/js/api.js` `buildAudioDownloadUrl`、移除 `src/index.js` `/api/audio/download` 路由并清理 `test/parser.test.js` 对应测试用例。
     - 固定整个 Header：将 `public/css/app.css` `html, body` 改为 `overflow-x: clip`，`.site-header` 改为 `position: fixed; top: 0; left: 0; right: 0;`，`.app-shell` 使用 `padding-top: var(--header-h, 146px)`；`public/js/app.js` 通过 `ResizeObserver` 与路由切换 `$nextTick` 实时同步 `--header-h`。
     - 榜单虚拟滚动：`public/js/utils.js` 新增 `computeVirtualWindow` 纯函数（支持前缀和与二分查找、动态行高缓存及 `test/frontend.test.js` 单测）；`RankBoard.js` 为移动端 `.rank-cards`（上下 padding 占位）与桌面端 `.rank-table`（上下 `virtual-spacer-row`）接入实测行高虚拟滚动并与 `<keep-alive>` / `onAfterScrollRestore` 协同。
-    - 移动端迷你播放栏排版重构：`AppIcon.js` 新增将数字 `15` / `30` 内嵌于回环箭头中的自定义 SVG 图标（`skip-back-15` / `skip-forward-30`）并统一用于迷你栏与全屏播控页；`PlayerBar.js` 与 `app.css` 精简 `< 480px` 窄屏冗余按钮（收起/队列按钮由固定顶栏及点击封面区展开承担，保留 `-15` / 播放 / `+30`），为节目标题与时长进度腾出充足水平空间；`public/index.html` 资源缓存版本号升级至 `?v=6`。
-  - *当前状态*：代码与文档均已写入并复核；因本会话 `run_command` 绑定于已删除的旧目录 `xyz-podcast/xyz-podcast` 无法执行命令，待在 `/home/projects/_ai-apps/xyz-podcast` 运行 `rm -f src/handlers/download.js && npm test`、页面实测（固定顶栏、移动端迷你播放栏、虚拟滚动 DOM 数量与返回滚动恢复）后标记 `[x]` 并部署。
+    - 移动端迷你播放栏排版重构：`AppIcon.js` 新增将数字 `15` / `30` 内嵌于回环箭头中的自定义 SVG 图标（`skip-back-15` / `skip-forward-30`）并统一用于迷你栏与全屏播控页。
+  - *验证结果*：后续多轮回归与用户验收通过。
 
 ---
 
-## 前端设计审查（2026-11-17）
+## 前端设计审查与功能演进（2026-11-17 ~ 2026-11-18）
 
-- [/] **FEAT-P2**（2026-11-18）实现免登录本地「我的收听」中心（关注播客 / 收听历史 / JSON 备份恢复 / OPML 导出）与 PC 桌面端全局播控快捷键
+- [/] **REFACTOR-P3**（2026-11-18）`app.css` 级联架构单源化重构与跨组件冗余逻辑收敛（100% 保持既有视觉与交互）
+  - **CSS 架构重构 (`public/css/app.css`)**：
+    - 消除多轮迭代追加在尾部的 ~80 处重复选择器覆盖：合并重复的 `:root` / `[data-theme="dark"]` 变量定义，将 Header、榜单卡片/表格、详情页 Hero/Shownotes/评论、迷你与全屏播放器、双抽屉（播放队列与我的收听）各自的最终生效样式归入单一职责分节（11 个清晰章节）。
+    - 将原本分散在 5 处的 `@media (min-width: 768px)` 与多处窄屏/短屏/减少动态效果媒体查询统一收拢到底部响应式章节，确保 `.library-panel` 桌面端 `100dvh` 高度与 `.ep-pod-row .podcast-link-pill` 水平基线对齐更加严谨。
+  - **JS 公共逻辑去重与内存边界**：
+    - `public/js/utils.js` 抽离统一进度文案纯函数 `formatProgressBadge`（并在 `test/frontend.test.js` 增加单测），替换 `RankBoard.js`、`PodcastView.js`、`PlaylistDrawer.js`、`LibraryDrawer.js` 四处重复的收听百分比/已播完计算逻辑（同时统一频道页已播完单集显示为 `已播完`）。
+    - `PlaylistDrawer.js` 合并重复的 5 秒撤销定时器代码，与 `LibraryDrawer.js` 共享 `.drawer-head-title` / `.drawer-head-actions` / `.drawer-thumb` / `.accent-text` 样式类，清理模板内联样式。
+    - `public/js/api.js` 为 `episodeDetailCache` / `podcastDetailCache` 增加 `MAX_DETAIL_CACHE = 60` 容量上限淘汰，防止长会话内存无界增长；`index.html` 升至 `app.css?v=30`、`app.js?v=32`，`sw.js` 升至 `v5`。
+  - **当前验证状态**：代码与单测均已静态复核；待在仓库根目录运行 `npm test` 与快速回归确认后改为 `[x]` 并部署。
+
+- [x] **FEAT-P2**（2026-11-18）实现免登录本地「我的收听」中心（关注播客 / 收听历史 / JSON 备份恢复 / OPML 导出）与 PC 桌面端全局播控快捷键
   - **P2-2「我的收听」中心完成内容**：
     - `public/js/storage.js` 新增 `xyzp_v1_favorites` 播客收藏（提取 `xyzrank` `links` 中的 RSS `xmlUrl`）、富元数据收听进度持久化（保留 `title`、`podcastName`、`pid`、`image`、`enclosureUrl`）、`exportUserDataObject` / `parseAndMergeBackupJson`（按更新时间戳智能合并收听记录与收藏）以及标准 **OPML 2.0** 生成器 `buildOpmlXml`。
     - 新建 `public/js/components/LibraryDrawer.js` 并接入 `overlayHistory.js` (`"library"`) 与 `app.js` 顶栏书签入口（含 `400px` 以下窄屏紧凑排布防溢出）：包含「关注播客」与「收听历史」双 Tab、一键续播/重播、单条移除/清空历史 5 秒撤销，以及底部 JSON 导出、JSON 导入恢复、OPML 导出。
@@ -173,9 +183,9 @@
   - **PC 全局快捷键完成内容**：
     - `public/js/utils.js` 新增 `shouldIgnoreGlobalHotkey(event)`（自动避让 `INPUT`/`TEXTAREA`/`SELECT`/`contentEditable`、修饰键、IME 输入法组合及按钮/链接上的 `Space`）；`app.js` 监听全局按键支持 `Space`（播放/暂停）、`←`/`→`（-15s/+30s）、`[`/`]`（步进倍速）、`M`（静音切换，同步更新 `PlayerBar.js` 全屏静音按钮与迷你栏提示）、`/`（聚焦榜单搜索框），并在 `AboutDialog.js` 与 `PlayerBar.js` 补充快捷键提示。
     - `test/frontend.test.js` 新增收藏、RSS 提取、富历史保留、JSON 导入合并冲突消解、OPML XML 转义及全局热键守卫单测。
-  - **当前验证状态**：代码与单测均已落盘复核（`P3` 样式整理按用户要求留待验收后单独实施）；因本会话 `run_command` 绑定于已删除目录 `xyz-podcast/xyz-podcast` 无法运行终端，待在根目录执行 `rm -f src/handlers/download.js && npm test` 与浏览器验收后改为 `[x]`。
+  - **验证结果**：用户本地验收通过（2026-11-18）。
 
-- [/] **FEAT-P0-P1**（2026-11-18）一次性完成 P0 稳定性/缓存保护与 P1 核心收听/热榜发现升级
+- [x] **FEAT-P0-P1**（2026-11-18）一次性完成 P0 稳定性/缓存保护与 P1 核心收听/热榜发现升级
   - **P0 完成内容**：
     - 外链冷启动返回兜底与 404 路由：`app.js` 新增 `smartBack()`、详情页顶栏「热榜」按钮与 `/:pathMatch(.*)*` 404 视图；`EpisodeView.js` / `PodcastView.js` 无站内历史时显示「逛热榜首页」并跳转 `/`，同步补齐详情页结构化骨架节点。
     - Service Worker 弱网安全回退：`public/sw.js` 升至 `v3`，仅在 `req.mode === "navigate"` 时回退 `"/"`，静态脚本/样式使用 `ignoreSearch: true` 缓存匹配，杜绝 ES Module 收到 HTML MIME 报错。
@@ -186,7 +196,7 @@
     - 睡眠定时器：`app.js` + `PlayerBar.js` 新增 `关闭 / 播完本集 / 15分 / 30分 / 45分 / 60分` 定时功能，支持实时倒计时显示与结束前 3 秒音量渐弱淡出。
     - 榜单升降趋势、单集直跳频道与已听标记：`boards.js` 通过索引点查关联上一期 `prev_rank` 与所属播客 `podcast_pid`（`test/schema.test.js` 与 `test/sync.test.js` 单测覆盖）；`RankBoard.js` 移动端（保持 18px 排名列宽不破坏 28px 左对齐）与桌面端展示 `↑ / ↓ / 新(NEW)`、可点击播客名跳转 `/podcast/:pid` 及 `已听 XX% / 已播完` 标记。
     - 锁屏进度同步与队列增强：`app.js` 接入 `navigator.mediaSession.setPositionState` 与音频报错自动强制刷新 `enclosureUrl` 重试；`PlaylistDrawer.js` 与 `EpisodeView.js` 新增「下一首播放」、「清已播」，并为单删、清已播、清空队列统一提供 5 秒撤销。
-  - **当前验证状态**：代码与新增单测均已落盘复核；因本会话 `run_command` 绑定于已删除目录 `xyz-podcast/xyz-podcast` 无法运行终端，待在根目录执行 `rm -f src/handlers/download.js && npm test` 与浏览器实测后改为 `[x]`。
+  - **验证结果**：用户本地验收通过（2026-11-18）。
 
 - [x] **PERF-03** 将微信字号脚本内联到 CSS 之前，按需库加载器合入已有 `utils.js`，减少首屏请求。
   - 本地 Wrangler + Chromium，390px 冷缓存首页 JS 请求 18 → 16（同源 15 → 13，CDN 3）。5 个固定地址均直接返回 HTTP 200。真实 DOMPurify / SortableJS 验证简介净化、时间戳和队列初始化，微信桥接模拟通过。单测 18/18。
@@ -363,5 +373,6 @@
 | 2026-11-18 | PERF-01 | 固定入口页 5 个 unpkg 脚本版本 | 发布记录、文件路径、HTML 和 4 个测试文件检查通过 | CDN 请求待联网复核 |
 | 2026-11-18 | PERF-02 | 首屏脚本 defer，简介净化与队列拖拽按需加载 | 4 个测试文件及加载顺序、延迟、失败和队列状态模拟通过 | CDN 请求待联网复核 |
 | 2026-11-18 | PERF-03 | 内联微信首屏初始化，合并按需库加载器 | Chromium 首页 JS 18 → 16，CDN 直接 200，主要功能及单测 18/18 通过 | 本地验证 |
-| 2026-11-18 | FEAT-P0-P1 | 完成 P0（深链返回/404、SW修复、D1分类缓存+Edge Cache、深色防闪白、同步超时）与 P1（热评时间戳跳播、睡眠定时、榜单升降/新上榜+频道直跳+已听标记、锁屏进度同步、队列下一首/清已播/清空撤销、音频失效重刷）及新增单测 | 本会话绑定旧 cwd 无法执行命令，代码与测试已完整静态复核 | 与 `FEAT-P2` 一并在根目录测试验收 |
-| 2026-11-18 | FEAT-P2 | 新增免登录本地「我的收听」抽屉（关注播客、收听历史、JSON 备份恢复、OPML 2.0 导出）、四榜与内页关注联动，以及 PC 全局播控快捷键（`Space` / `←` / `→` / `[` / `]` / `M` / `/`）与单测 | 本会话绑定旧 cwd 无法执行命令，代码与测试已完整静态复核 | 在 `/home/projects/_ai-apps/xyz-podcast` 执行 `rm -f src/handlers/download.js && npm test`、本地验收后部署（`P3` 留待验收后进行） |
+| 2026-11-18 | FEAT-P0-P1 | 完成 P0（深链返回/404、SW修复、D1分类缓存+Edge Cache、深色防闪白、同步超时）与 P1（热评时间戳跳播、睡眠定时、榜单升降/新上榜+频道直跳+已听标记、锁屏进度同步、队列下一首/清已播/清空撤销、音频失效重刷）及新增单测 | 用户本地验收通过 | 已合入后续交付 |
+| 2026-11-18 | FEAT-P2 | 新增免登录本地「我的收听」抽屉（关注播客、收听历史、JSON 备份恢复、OPML 2.0 导出）、四榜与内页关注联动，以及 PC 全局播控快捷键（`Space` / `←` / `→` / `[` / `]` / `M` / `/`）与单测 | 用户本地验收通过 | 进入 `REFACTOR-P3` |
+| 2026-11-18 | REFACTOR-P3 | 重构单源化 `public/css/app.css`（消除尾部约 80 处重复级联覆盖、合并 5 处分散媒体查询为 11 个清晰章节）、抽离公共 `formatProgressBadge` 统一 4 处进度文案、为详情内存缓存增加 60 条上限淘汰、清理组件内联样式 | 代码与单测已静态复核（本会话绑定旧 cwd 未执行终端） | 在根目录运行 `npm test` 与快速回归后提交部署 |

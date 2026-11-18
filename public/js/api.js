@@ -1,7 +1,17 @@
 import { parseEpisodePage, parsePodcastPage } from "./xyzParser.js";
 
+const MAX_DETAIL_CACHE = 60;
 const episodeDetailCache = new Map();
 const podcastDetailCache = new Map();
+
+function setBoundedCache(cache, key, value) {
+  if (cache.has(key)) cache.delete(key);
+  cache.set(key, value);
+  if (cache.size > MAX_DETAIL_CACHE) {
+    const oldestKey = cache.keys().next().value;
+    if (oldestKey !== undefined) cache.delete(oldestKey);
+  }
+}
 
 async function requestJson(url) {
   const res = await fetch(url);
@@ -91,7 +101,7 @@ export async function fetchPodcastDetail(pid, { forceRefresh = false } = {}) {
     parsePodcastPage,
     pid
   );
-  podcastDetailCache.set(pid, data);
+  setBoundedCache(podcastDetailCache, pid, data);
   return data;
 }
 
@@ -105,6 +115,6 @@ export async function fetchEpisodeDetail(eid, { forceRefresh = false } = {}) {
     parseEpisodePage,
     eid
   );
-  episodeDetailCache.set(eid, data);
+  setBoundedCache(episodeDetailCache, eid, data);
   return data;
 }

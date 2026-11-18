@@ -4,6 +4,7 @@ import {
   formatCount,
   formatMinutes,
   formatPercent,
+  formatProgressBadge,
   formatRelativeDays,
   scrollKeeperMixin,
 } from "../utils.js";
@@ -182,13 +183,8 @@ export default {
     },
     episodeProgressText(item) {
       if (!item?.eid) return "";
-      const p = this.player.progressMap[item.eid];
-      if (!p) return "";
-      if (p.finished) return "已播完";
-      const dur = Number(p.duration) || (Number(item.duration) > 0 ? Number(item.duration) * 60 : 0);
-      if (dur <= 0 || !(p.currentTime > 5)) return "";
-      const pct = Math.min(99, Math.max(1, Math.round((p.currentTime / dur) * 100)));
-      return `已听 ${pct}%`;
+      const fallbackSec = Number(item.duration) > 0 ? Number(item.duration) * 60 : 0;
+      return formatProgressBadge(this.player.progressMap[item.eid], fallbackSec);
     },
     activeHeightCache() {
       return this.isDesktop ? this._desktopHeights : this._mobileHeights;

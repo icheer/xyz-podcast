@@ -1,4 +1,4 @@
-import { formatDurationSeconds, loadSortable } from "../utils.js";
+import { formatDurationSeconds, formatProgressBadge, loadSortable } from "../utils.js";
 import AppIcon from "./AppIcon.js";
 
 export default {
@@ -41,12 +41,11 @@ export default {
   },
   methods: {
     formatDurationSeconds,
-    saveUndoSnapshot(message) {
-      this.undoState = {
-        message,
-        items: [...this.player.queue],
-        currentEid: this.player.currentEid,
-      };
+    saveUndoSnapshot(
+      message,
+      snapshot = { items: [...this.player.queue], currentEid: this.player.currentEid }
+    ) {
+      this.undoState = { message, ...snapshot };
       clearTimeout(this.undoTimer);
       this.undoTimer = setTimeout(() => {
         this.undoState = null;
@@ -67,14 +66,7 @@ export default {
       };
       const removed = this.playerActions.clearFinishedFromQueue();
       if (removed > 0) {
-        this.undoState = {
-          message: `已移除 ${removed} 集已播完节目`,
-          ...snapshot,
-        };
-        clearTimeout(this.undoTimer);
-        this.undoTimer = setTimeout(() => {
-          this.undoState = null;
-        }, 5000);
+        this.saveUndoSnapshot(`已移除 ${removed} 集已播完节目`, snapshot);
       }
     },
     handleClearAll() {
@@ -127,13 +119,7 @@ export default {
       }
     },
     progressText(track) {
-      const p = this.player.progressMap[track.eid];
-      if (!p) return "";
-      if (p.finished) return "已播完";
-      const dur = track.duration || p.duration || 0;
-      if (dur <= 0 || p.currentTime <= 5) return "";
-      const pct = Math.min(99, Math.round((p.currentTime / dur) * 100));
-      return `已听 ${pct}%`;
+      return formatProgressBadge(this.player.progressMap[track.eid], track.duration);
     },
   },
   template: `
@@ -149,11 +135,11 @@ export default {
       <div class="drawer-panel">
         <div class="drawer-grabber" aria-hidden="true"></div>
         <div class="drawer-header">
-          <div style="display:flex;align-items:center;gap:8px;min-width:0;">
+          <div class="drawer-head-title">
             <app-icon name="list-music" :size="18" />
-            <strong style="white-space:nowrap;">播放列表 ({{ player.queue.length }})</strong>
+            <strong>播放列表 ({{ player.queue.length }})</strong>
           </div>
-          <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;">
+          <div class="drawer-head-actions">
             <button
               v-if="finishedCount > 0"
               type="button"
@@ -199,14 +185,14 @@ export default {
               <app-icon name="grip-vertical" :size="16" />
             </span>
 
-            <img v-cover class="cover-thumb" style="width:42px;height:42px;border-radius:9px;" :src="item.image" :alt="item.title" />
+            <img v-cover class="cover-thumb drawer-thumb" :src="item.image" :alt="item.title" />
 
             <button type="button" class="queue-info" @click="playerActions.playTrack(item)">
               <div class="queue-title">{{ item.title }}</div>
               <div class="queue-sub tabular">
                 <span>{{ item.podcastName || '小宇宙播客' }}</span>
                 <span v-if="item.duration"> · {{ formatDurationSeconds(item.duration) }}</span>
-                <span v-if="progressText(item)" style="color:var(--accent);font-weight:600;"> · {{ progressText(item) }}</span>
+                <span v-if="progressText(item)" class="accent-text"> · {{ progressText(item) }}</span>
               </div>
             </button>
 

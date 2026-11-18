@@ -328,9 +328,11 @@ npm run deploy               # npx wrangler deploy
   - **P1**：① 热评与二级回复时间戳纯文本切分一键空降跳播（`parseTextWithTimestamps`，按单集时长过滤无效时间，无 `v-html`）；② 全屏播放器新增睡眠定时器（`15/30/45/60分` 倒计时含 3s 音量渐弱 + `播完本集停`）；③ 榜单对比 `prev_sync_version` 展示 `↑ / ↓ / 新(NEW)` 趋势标识、单集榜关联 `podcastPid` 支持一键直跳 `/podcast/:pid`、单集榜透出 `已听 XX% / 已播完` 标签；④ `MediaSession.setPositionState` 锁屏进度同步、队列新增「下一首播放」与「清已播」、清空/清已播/单删统一 5 秒撤销、音频报错自动强制重拉单集详情刷新 `enclosureUrl` 重试。
 - **最新 P2 升级（免登录「我的收听」中心 + PC 全局快捷键，2026-11-18）**：`FEAT-P2` 已完成代码落盘（`P3` CSS 整理按用户计划留待验收后单独进行）：
   - **本地「我的收听」中心 (`LibraryDrawer.js` + `storage.js` + `overlayHistory.js`)**：顶栏新增「我的收听」入口并接入同 URL 弹层返回栈；支持在播客榜、频道页、单集页一键关注/取消关注播客并在四榜透出 `已关注` 标识；收听进度同步持久化单集标题/频道/封面/直链以驱动「收听历史」Tab（支持一键续播、单删与清空 5 秒撤销）；底部内置 **导出备份 (JSON)**、**导入恢复 (JSON 智能合并)** 与 **OPML 2.0 订阅导出**（含 RSS `xmlUrl` 提取）。
-  - **PC 桌面端全局快捷键 (`app.js` + `utils.js` + `PlayerBar.js` + `AboutDialog.js`)**：新增 `shouldIgnoreGlobalHotkey` 安全守卫（避让输入框、IME 组合、修饰键与聚焦按钮 `Space`），支持 `Space` 播放/暂停、`←`/`→` -15s/+30s、`[`/`]` 倍速步进、`M` 静音切换（含全屏播控页静音按钮与迷你栏状态提示）、`/` 聚焦榜单搜索框，并在项目介绍弹窗及播控按钮 `title` 中展示快捷键提示。资源版本升至 `app.css?v=29`、`app.js?v=31`，`sw.js` 升至 `v4`。
-- **当前注意**：发起本轮会话的终端 `cwd` 仍指向已删除的嵌套目录 `xyz-podcast/xyz-podcast`，因此本轮代码改动后需在仓库根目录 `/home/projects/_ai-apps/xyz-podcast` 运行单测、浏览器验收与部署。
+  - **PC 桌面端全局快捷键 (`app.js` + `utils.js` + `PlayerBar.js` + `AboutDialog.js`)**：新增 `shouldIgnoreGlobalHotkey` 安全守卫（避让输入框、IME 组合、修饰键与聚焦按钮 `Space`），支持 `Space` 播放/暂停、`←`/`→` -15s/+30s、`[`/`]` 倍速步进、`M` 静音切换（含全屏播控页静音按钮与迷你栏状态提示）、`/` 聚焦榜单搜索框，并在项目介绍弹窗及播控按钮 `title` 中展示快捷键提示。`FEAT-P0-P1` 与 `FEAT-P2` 均已通过用户验收。
+- **最新 P3 样式与代码架构整理（2026-11-18）**：`REFACTOR-P3` 已完成落盘：
+  - **`public/css/app.css` 单源化级联重构**：彻底消除多轮迭代追加在尾部的 ~80 处重复选择器覆盖与 5 处分散 `@media (min-width: 768px)`，按职责重组为 11 个单源章节（Design Tokens、Reset & Primitives、Header、About Dialog、Board Toolbar & Skeletons、Mobile Rank Cards、Desktop Rank Table、Detail Pages/Shownotes/Comments、Mini & Full Player、Drawers/Toast/Transitions、Consolidated Breakpoints），100% 保持已验收的视觉表现与优先级。
+  - **跨组件去重与边界收敛**：`utils.js` 抽离 `formatProgressBadge` 统一 `RankBoard` / `PodcastView` / `PlaylistDrawer` / `LibraryDrawer` 四处收听进度标签逻辑；`PlaylistDrawer` 收敛重复撤销定时器并提取抽屉通用头/缩略图类；`api.js` 为前端内存详情缓存增加 `MAX_DETAIL_CACHE = 60` FIFO 淘汰上限。资源版本升至 `app.css?v=30`、`app.js?v=32`，`sw.js` 升至 `v5`。
 - **下一位 Agent / 用户终端的精确动作**：
   1. `cd /home/projects/_ai-apps/xyz-podcast && rm -f src/handlers/download.js && npm test`
-  2. `npm run dev` 验收 P0 + P1 + P2（「我的收听」关注/历史/JSON 导入导出/OPML、PC 快捷键、深链返回、睡眠定时、热评时间戳跳播、榜单升降趋势），随后将 `CHECKLIST.md` 中 `FEAT-P2`、`FEAT-P0-P1`（及 `P7-05`/`P7-06`）标为 `[x]`。
-  3. 提交并部署：`git add -A && git commit -m "feat: add local library drawer (subscriptions/history/OPML) and PC playback hotkeys" && npm run deploy`（验收通过后再按需推进 P3 CSS 整理）。
+  2. `npm run dev` 快速抽检手机/桌面浅深色布局无回归后，将 `CHECKLIST.md` 中 `REFACTOR-P3` 标为 `[x]`。
+  3. 提交并部署：`git add -A && git commit -m "refactor: consolidate app.css cascade and deduplicate shared progress/drawer helpers" && npm run deploy`

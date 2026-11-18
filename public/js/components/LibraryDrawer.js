@@ -4,7 +4,7 @@ import {
   exportUserDataObject,
   parseAndMergeBackupJson,
 } from "../storage.js";
-import { formatDateTime, formatDurationSeconds } from "../utils.js";
+import { formatDateTime, formatDurationSeconds, formatProgressBadge } from "../utils.js";
 import AppIcon from "./AppIcon.js";
 
 function triggerTextDownload(filename, content, mimeType) {
@@ -129,12 +129,10 @@ export default {
       return this.player.currentEid === eid && this.player.isPlaying;
     },
     historyProgressLabel(item) {
-      if (item.finished) return "已播完";
-      if (item.duration > 0 && item.currentTime > 0) {
-        const pct = Math.min(99, Math.max(1, Math.round((item.currentTime / item.duration) * 100)));
-        return `已听 ${pct}% (${formatDurationSeconds(item.currentTime)})`;
-      }
-      return `听至 ${formatDurationSeconds(item.currentTime)}`;
+      return formatProgressBadge(item, item.duration, {
+        includeTime: true,
+        minSeconds: 0,
+      });
     },
     async playHistoryItem(item) {
       if (this.player.currentEid === item.eid) {
@@ -238,11 +236,11 @@ export default {
       <div class="drawer-panel library-panel">
         <div class="drawer-grabber" aria-hidden="true"></div>
         <div class="drawer-header">
-          <div style="display:flex;align-items:center;gap:8px;">
+          <div class="drawer-head-title">
             <app-icon name="bookmark" :size="18" />
             <strong>我的收听</strong>
           </div>
-          <div style="display:flex;align-items:center;gap:6px;">
+          <div class="drawer-head-actions">
             <button
               v-if="activeTab === 'history' && historyItems.length > 0"
               type="button"
@@ -294,12 +292,12 @@ export default {
             :key="pod.pid"
             class="queue-item"
           >
-            <img v-cover class="cover-thumb" style="width:44px;height:44px;border-radius:10px;" :src="pod.image" :alt="pod.title" loading="lazy" />
+            <img v-cover class="cover-thumb drawer-thumb" :src="pod.image" :alt="pod.title" loading="lazy" />
             <button type="button" class="queue-info" @click="openPodcast(pod.pid)">
               <div class="queue-title">{{ pod.title }}</div>
               <div class="queue-sub">
                 <span>{{ pod.author || '小宇宙播客频道' }}</span>
-                <span v-if="pod.rssUrl" style="color:var(--accent);"> · 含 RSS</span>
+                <span v-if="pod.rssUrl" class="accent-text"> · 含 RSS</span>
               </div>
             </button>
             <button
@@ -327,12 +325,12 @@ export default {
             class="queue-item"
             :class="{ active: item.eid === player.currentEid }"
           >
-            <img v-cover class="cover-thumb" style="width:44px;height:44px;border-radius:10px;" :src="item.image" :alt="item.title" loading="lazy" />
+            <img v-cover class="cover-thumb drawer-thumb" :src="item.image" :alt="item.title" loading="lazy" />
             <button type="button" class="queue-info" @click="openEpisode(item.eid)">
               <div class="queue-title">{{ item.title }}</div>
               <div class="queue-sub tabular">
                 <span v-if="item.podcastName">{{ item.podcastName }} · </span>
-                <span style="color:var(--accent);font-weight:500;">{{ historyProgressLabel(item) }}</span>
+                <span class="accent-text">{{ historyProgressLabel(item) }}</span>
                 <span v-if="item.updatedAt"> · {{ formatDateTime(new Date(item.updatedAt).toISOString()) }}</span>
               </div>
             </button>

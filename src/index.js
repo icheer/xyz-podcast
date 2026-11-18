@@ -69,7 +69,6 @@ async function handleApi(request, env, ctx, url) {
     return handleEpisodeDetail(episodeMatch[1], env);
   }
 
-
   if (path === "/api/admin/sync" && method === "POST") {
     return handleAdminSync(request, env);
   }

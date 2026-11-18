@@ -3,6 +3,7 @@ import {
   formatCount,
   formatDateTime,
   formatDurationSeconds,
+  formatProgressBadge,
   scrollKeeperMixin,
 } from "../utils.js";
 import AppIcon from "./AppIcon.js";
@@ -121,13 +122,11 @@ export default {
     isInQueue(eid) {
       return this.player.queue.some((t) => t.eid === eid);
     },
-    progressPercent(eid, duration) {
-      const p = this.player.progressMap[eid];
-      if (!p) return 0;
-      if (p.finished) return 100;
-      const dur = duration || p.duration || 0;
-      if (dur <= 0) return 0;
-      return Math.min(100, Math.round((p.currentTime / dur) * 100));
+    episodeProgressText(ep) {
+      return formatProgressBadge(this.player.progressMap[ep.eid], ep.duration);
+    },
+    isEpisodeFinished(eid) {
+      return Boolean(this.player.progressMap[eid]?.finished);
     },
   },
   template: `
@@ -273,7 +272,11 @@ export default {
                   <span>💬 {{ formatCount(ep.commentCount) }}</span>
                 </div>
 
-                <span v-if="progressPercent(ep.eid, ep.duration) > 0" class="genre-tag ep-progress">已听 {{ progressPercent(ep.eid, ep.duration) }}%</span>
+                <span
+                  v-if="episodeProgressText(ep)"
+                  class="ep-listen-tag ep-progress tabular"
+                  :class="{ done: isEpisodeFinished(ep.eid) }"
+                >{{ episodeProgressText(ep) }}</span>
                 <div class="ep-actions" @click.stop>
                   <button
                     type="button"
