@@ -319,6 +319,52 @@ export const scrollKeeperMixin = {
 };
 
 /**
+ * Shared Vue Options API mixin for inline two-step confirmation on destructive buttons
+ * (1st tap arms red confirmation state for 3.5s; 2nd tap executes; tapping elsewhere disarms).
+ */
+export const inlineConfirmMixin = {
+  data() {
+    return {
+      confirmingClear: false,
+      _clearConfirmTimer: null,
+    };
+  },
+  beforeUnmount() {
+    this.resetClearConfirm();
+  },
+  methods: {
+    resetClearConfirm() {
+      this.confirmingClear = false;
+      if (this._clearConfirmTimer) {
+        clearTimeout(this._clearConfirmTimer);
+        this._clearConfirmTimer = null;
+      }
+    },
+    triggerInlineClearConfirm(onConfirmed, timeoutMs = 3500) {
+      if (!this.confirmingClear) {
+        this.confirmingClear = true;
+        clearTimeout(this._clearConfirmTimer);
+        this._clearConfirmTimer = setTimeout(() => {
+          this.confirmingClear = false;
+          this._clearConfirmTimer = null;
+        }, timeoutMs);
+        return false;
+      }
+      this.resetClearConfirm();
+      if (typeof onConfirmed === "function") {
+        onConfirmed();
+      }
+      return true;
+    },
+    onConfirmScopePointerDown(evt) {
+      if (this.confirmingClear && !evt?.target?.closest?.("[data-clear-confirm]")) {
+        this.resetClearConfirm();
+      }
+    },
+  },
+};
+
+/**
  * Compute visible [startIndex, endIndex) window and spacer heights for a variable-height virtual list.
  * Supports Map or plain object/array heightCache keyed by item index.
  */

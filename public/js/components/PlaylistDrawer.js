@@ -2,6 +2,7 @@ import {
   computeProgressPercent,
   formatDurationSeconds,
   formatProgressBadge,
+  inlineConfirmMixin,
   loadSortable,
 } from "../utils.js";
 import AppIcon from "./AppIcon.js";
@@ -9,6 +10,7 @@ import AppIcon from "./AppIcon.js";
 export default {
   name: "PlaylistDrawer",
   components: { AppIcon },
+  mixins: [inlineConfirmMixin],
   inject: ["player", "playerActions"],
   data() {
     return {
@@ -28,7 +30,8 @@ export default {
     },
   },
   watch: {
-    "player.queue.length"() {
+    "player.queue.length"(len) {
+      if (len === 0) this.resetClearConfirm();
       if (this.player.playlistOpen) this.$nextTick(() => this.initSortable());
     },
     "player.playlistOpen"(isOpen) {
@@ -36,6 +39,7 @@ export default {
         this.$nextTick(() => this.initSortable());
       } else {
         this.expandedActions = null;
+        this.resetClearConfirm();
         this.destroySortable();
       }
     },
@@ -76,9 +80,11 @@ export default {
     },
     handleClearAll() {
       if (this.player.queue.length === 0) return;
-      this.saveUndoSnapshot(`已清空 ${this.player.queue.length} 集播放列表`);
-      this.expandedActions = null;
-      this.playerActions.clearQueue({ silentToast: true });
+      this.triggerInlineClearConfirm(() => {
+        this.saveUndoSnapshot(`已清空 ${this.player.queue.length} 集播放列表`);
+        this.expandedActions = null;
+        this.playerActions.clearQueue({ silentToast: true });
+      });
     },
     undoRemove() {
       if (!this.undoState) return;
@@ -180,7 +186,7 @@ export default {
       aria-modal="true"
       aria-label="播放列表"
     >
-      <div class="drawer-panel">
+      <div class="drawer-panel" @pointerdown="onConfirmScopePointerDown">
         <div class="drawer-grabber" aria-hidden="true"></div>
         <div class="drawer-header">
           <div class="drawer-head-title">
@@ -189,7 +195,7 @@ export default {
           </div>
           <div class="drawer-head-actions">
             <button
-              v-if="finishedCount > 0"
+              v-if="finishedCount > 0 && !confirmingClear"
               type="button"
               class="btn sm"
               @click="handleClearFinished"
@@ -200,11 +206,15 @@ export default {
             <button
               v-if="player.queue.length > 0"
               type="button"
+              data-clear-confirm
               class="btn sm"
+              :class="{ 'danger-confirm': confirmingClear }"
               @click="handleClearAll"
+              @keydown.esc.stop.prevent="confirmingClear && resetClearConfirm()"
+              :title="confirmingClear ? '再次点击确认清空播放列表' : '清空播放列表'"
             >
               <app-icon name="trash-2" :size="14" />
-              <span>清空</span>
+              <span>{{ confirmingClear ? '确认清空' : '清空' }}</span>
             </button>
             <button
               type="button"

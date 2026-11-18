@@ -4,7 +4,12 @@ import {
   exportUserDataObject,
   parseAndMergeBackupJson,
 } from "../storage.js";
-import { formatDateTime, formatDurationSeconds, formatProgressBadge } from "../utils.js";
+import {
+  formatDateTime,
+  formatDurationSeconds,
+  formatProgressBadge,
+  inlineConfirmMixin,
+} from "../utils.js";
 import AppIcon from "./AppIcon.js";
 
 function triggerTextDownload(filename, content, mimeType) {
@@ -22,6 +27,7 @@ function triggerTextDownload(filename, content, mimeType) {
 export default {
   name: "LibraryDrawer",
   components: { AppIcon },
+  mixins: [inlineConfirmMixin],
   inject: ["player", "playerActions"],
   props: {
     open: { type: Boolean, default: false },
@@ -62,9 +68,19 @@ export default {
   },
   watch: {
     open(isOpen) {
-      if (isOpen && this.favorites.length === 0 && this.historyItems.length > 0) {
+      if (!isOpen) {
+        this.resetClearConfirm();
+        return;
+      }
+      if (this.favorites.length === 0 && this.historyItems.length > 0) {
         this.activeTab = "history";
       }
+    },
+    activeTab() {
+      this.resetClearConfirm();
+    },
+    "historyItems.length"(len) {
+      if (len === 0) this.resetClearConfirm();
     },
   },
   beforeUnmount() {
@@ -107,13 +123,15 @@ export default {
     },
     handleClearHistory() {
       if (this.historyItems.length === 0) return;
-      const prevMap = { ...this.player.progressMap };
-      this.setUndo({
-        type: "history",
-        message: `已清空 ${this.historyItems.length} 条收听历史`,
-        progressMap: prevMap,
+      this.triggerInlineClearConfirm(() => {
+        const prevMap = { ...this.player.progressMap };
+        this.setUndo({
+          type: "history",
+          message: `已清空 ${this.historyItems.length} 条收听历史`,
+          progressMap: prevMap,
+        });
+        this.playerActions.clearProgressHistory();
       });
-      this.playerActions.clearProgressHistory();
     },
     handleUndo() {
       if (!this.undoState) return;
@@ -233,7 +251,7 @@ export default {
       aria-modal="true"
       aria-label="我的收听"
     >
-      <div class="drawer-panel library-panel">
+      <div class="drawer-panel library-panel" @pointerdown="onConfirmScopePointerDown">
         <div class="drawer-grabber" aria-hidden="true"></div>
         <div class="drawer-header">
           <div class="drawer-head-title">
@@ -244,11 +262,15 @@ export default {
             <button
               v-if="activeTab === 'history' && historyItems.length > 0"
               type="button"
+              data-clear-confirm
               class="btn sm"
+              :class="{ 'danger-confirm': confirmingClear }"
               @click="handleClearHistory"
+              @keydown.esc.stop.prevent="confirmingClear && resetClearConfirm()"
+              :title="confirmingClear ? '再次点击确认清空收听历史' : '清空收听历史'"
             >
               <app-icon name="trash-2" :size="14" />
-              <span>清空历史</span>
+              <span>{{ confirmingClear ? '确认清空' : '清空历史' }}</span>
             </button>
             <button
               type="button"

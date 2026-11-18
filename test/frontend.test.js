@@ -9,6 +9,7 @@ import {
   formatPercent,
   formatProgressBadge,
   injectTimestampButtons,
+  inlineConfirmMixin,
   parseTextWithTimestamps,
   parseTimestampToSeconds,
   shouldIgnoreGlobalHotkey,
@@ -329,4 +330,45 @@ test("shouldIgnoreGlobalHotkey guards typing, modifiers, IME, and focused intera
   assert.equal(shouldIgnoreGlobalHotkey({ key: " ", target: { tagName: "BUTTON" } }), true);
   assert.equal(shouldIgnoreGlobalHotkey({ key: " ", target: buttonChild }), true);
   assert.equal(shouldIgnoreGlobalHotkey({ key: "ArrowRight", target: buttonChild }), false);
+});
+
+test("inlineConfirmMixin arms on first click, executes on second click, and disarms on outside tap or timeout", async () => {
+  const ctx = {
+    ...inlineConfirmMixin.data(),
+    ...inlineConfirmMixin.methods,
+  };
+  let executed = 0;
+
+  // First click only arms confirmation
+  const first = ctx.triggerInlineClearConfirm(() => {
+    executed += 1;
+  }, 50);
+  assert.equal(first, false);
+  assert.equal(ctx.confirmingClear, true);
+  assert.equal(executed, 0);
+
+  // Tapping outside [data-clear-confirm] disarms immediately
+  ctx.onConfirmScopePointerDown({ target: { closest: () => null } });
+  assert.equal(ctx.confirmingClear, false);
+
+  // Arm again -> second click executes and resets state
+  ctx.triggerInlineClearConfirm(() => {
+    executed += 1;
+  }, 50);
+  assert.equal(ctx.confirmingClear, true);
+  const second = ctx.triggerInlineClearConfirm(() => {
+    executed += 1;
+  }, 50);
+  assert.equal(second, true);
+  assert.equal(ctx.confirmingClear, false);
+  assert.equal(executed, 1);
+
+  // Auto-disarms after timeout if not clicked a second time
+  ctx.triggerInlineClearConfirm(() => {
+    executed += 1;
+  }, 25);
+  assert.equal(ctx.confirmingClear, true);
+  await new Promise((r) => setTimeout(r, 40));
+  assert.equal(ctx.confirmingClear, false);
+  assert.equal(executed, 1);
 });

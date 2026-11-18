@@ -241,7 +241,7 @@ img {
   transition: background-color 160ms, color 160ms, border-color 160ms, transform 140ms;
 }
 
-.btn:not(.primary):hover {
+.btn:not(.primary):not(.danger-confirm):hover {
   border-color: var(--border-strong);
   background: var(--surface-hover);
   color: var(--text);
@@ -255,6 +255,20 @@ img {
 
 .btn.primary:hover {
   background: var(--accent-hover);
+}
+
+.btn.danger-confirm {
+  background: #dc2626;
+  border-color: #dc2626;
+  color: #ffffff;
+  font-weight: 600;
+  animation: confirm-arm 180ms ease-out;
+}
+
+.btn.danger-confirm:hover {
+  background: #b91c1c;
+  border-color: #b91c1c;
+  color: #ffffff;
 }
 
 .btn.sm {
@@ -2327,6 +2341,12 @@ button.queue-info {
 
 @keyframes queue-confirm {
   50% { transform: scale(1.12); }
+}
+
+@keyframes confirm-arm {
+  0% { transform: scale(0.95); }
+  60% { transform: scale(1.03); }
+  100% { transform: scale(1); }
 }
 
 .buffering-icon {
