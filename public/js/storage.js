@@ -8,7 +8,14 @@ const KEYS = {
 export const MAX_PROGRESS_ENTRIES = 200;
 export const MAX_FAVORITES = 300;
 export const LOOP_MODES = ["sequential", "repeat-all", "repeat-one"];
-export const PLAYBACK_RATES = [0.75, 1.0, 1.25, 1.5, 1.75, 2.0];
+export const PLAYBACK_RATES = [0.9, 1, 1.1, 1.2, 1.3, 1.5, 1.75, 2];
+
+function normalizePlaybackRate(value, fallback = 1) {
+  const rate = Number(value);
+  if (rate === 0.75) return 0.9;
+  if (rate === 1.25) return 1.3;
+  return PLAYBACK_RATES.includes(rate) ? rate : fallback;
+}
 
 function defaultStorage() {
   if (typeof window !== "undefined" && window.localStorage) {
@@ -53,9 +60,7 @@ export function saveQueue(items, currentEid, storage = defaultStorage()) {
 
 export function loadPrefs(storage = defaultStorage()) {
   const data = readJson(storage, KEYS.PREFS, {});
-  const rate = PLAYBACK_RATES.includes(Number(data.playbackRate))
-    ? Number(data.playbackRate)
-    : 1.0;
+  const rate = normalizePlaybackRate(data.playbackRate);
   const loopMode = LOOP_MODES.includes(data.loopMode) ? data.loopMode : "sequential";
   let theme = "light";
   if (data.theme === "dark" || data.theme === "light") {
@@ -345,9 +350,7 @@ export function parseAndMergeBackupJson(rawText, storage = defaultStorage()) {
   // Prefs: adopt imported prefs if provided
   const localPrefs = loadPrefs(storage);
   const nextPrefs = {
-    playbackRate: PLAYBACK_RATES.includes(Number(data.prefs?.playbackRate))
-      ? Number(data.prefs.playbackRate)
-      : localPrefs.playbackRate,
+    playbackRate: normalizePlaybackRate(data.prefs?.playbackRate, localPrefs.playbackRate),
     loopMode: LOOP_MODES.includes(data.prefs?.loopMode)
       ? data.prefs.loopMode
       : localPrefs.loopMode,

@@ -108,6 +108,21 @@ test("storage queue and prefs persist and validate defaults", () => {
   });
 });
 
+test("legacy playback speeds migrate from saved preferences and backups", () => {
+  const storage = createMemoryStorage();
+  storage.setItem("xyzp_v1_prefs", '{"playbackRate":0.75}');
+  assert.equal(loadPrefs(storage).playbackRate, 0.9);
+
+  const backup = exportUserDataObject(storage);
+  backup.prefs.playbackRate = 1.25;
+  parseAndMergeBackupJson(JSON.stringify(backup), storage);
+  assert.equal(loadPrefs(storage).playbackRate, 1.3);
+
+  backup.prefs.playbackRate = 1.2;
+  parseAndMergeBackupJson(JSON.stringify(backup), storage);
+  assert.equal(loadPrefs(storage).playbackRate, 1.2);
+});
+
 test("storage progress enforces 200-entry eviction and resume thresholds", () => {
   const storage = createMemoryStorage();
   for (let i = 1; i <= MAX_PROGRESS_ENTRIES + 15; i += 1) {

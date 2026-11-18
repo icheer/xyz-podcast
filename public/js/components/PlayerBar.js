@@ -75,6 +75,11 @@ export default {
       this.showRatePicker = !this.showRatePicker;
       if (this.showRatePicker) this.showSleepPicker = false;
     },
+    selectPlaybackRate(rate) {
+      this.playerActions.setPlaybackRate(rate);
+      this.showRatePicker = false;
+      this.$refs.rateToggle?.focus({ preventScroll: true });
+    },
     toggleSleepPicker() {
       this.showSleepPicker = !this.showSleepPicker;
       if (this.showSleepPicker) this.showRatePicker = false;
@@ -261,14 +266,15 @@ export default {
             </button>
           </div>
 
-          <div v-if="showRatePicker" class="speed-pills" role="group" aria-label="播放倍速">
+          <div v-if="showRatePicker" id="playback-rate-picker" class="speed-pills rate-pills" role="group" aria-label="播放倍速">
             <button
               v-for="r in rates"
               :key="r"
               type="button"
               class="speed-pill tabular"
               :class="{ active: player.playbackRate === r }"
-              @click="playerActions.setPlaybackRate(r); showRatePicker = false"
+              :aria-pressed="player.playbackRate === r"
+              @click="selectPlaybackRate(r)"
             >{{ r }}x</button>
           </div>
 
@@ -284,7 +290,15 @@ export default {
           </div>
 
           <div class="utility-row">
-            <button type="button" class="util-btn" @click="toggleRatePicker" title="调节倍速 (快捷键 [ / ])">
+            <button
+              ref="rateToggle"
+              type="button"
+              class="util-btn"
+              :aria-expanded="showRatePicker"
+              :aria-controls="showRatePicker ? 'playback-rate-picker' : undefined"
+              @click="toggleRatePicker"
+              title="调节倍速 (快捷键 [ / ])"
+            >
               <strong class="tabular" style="font-size: 14px;">{{ player.playbackRate }}x</strong>
               <span>倍速</span>
             </button>

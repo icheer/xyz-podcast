@@ -1988,6 +1988,23 @@ button.mini-track {
   color: #ffffff;
 }
 
+.rate-pills {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.rate-pills .speed-pill {
+  min-height: 44px;
+  padding: 5px 4px;
+  white-space: nowrap;
+}
+
+@media (min-width: 480px) {
+  .rate-pills {
+    grid-template-columns: repeat(8, minmax(0, 1fr));
+  }
+}
+
 /* ---------- 10. Drawers (Queue & Library), Toast & Animations ---------- */
 .drawer-backdrop {
   position: fixed;
