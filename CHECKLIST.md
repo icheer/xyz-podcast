@@ -172,7 +172,7 @@
   - **JS 公共逻辑去重与内存边界**：
     - `public/js/utils.js` 抽离统一进度文案纯函数 `formatProgressBadge`（并在 `test/frontend.test.js` 增加单测），替换 `RankBoard.js`、`PodcastView.js`、`PlaylistDrawer.js`、`LibraryDrawer.js` 四处重复的收听百分比/已播完计算逻辑（同时统一频道页已播完单集显示为 `已播完`）。
     - `PlaylistDrawer.js` 合并重复的 5 秒撤销定时器代码，与 `LibraryDrawer.js` 共享 `.drawer-head-title` / `.drawer-head-actions` / `.drawer-thumb` / `.accent-text` 样式类，清理模板内联样式。
-    - `public/js/api.js` 为 `episodeDetailCache` / `podcastDetailCache` 增加 `MAX_DETAIL_CACHE = 60` 容量上限淘汰，防止长会话内存无界增长；`index.html` 升至 `app.css?v=30`、`app.js?v=32`，`sw.js` 升至 `v5`。
+    - `public/js/api.js` 为 `episodeDetailCache` / `podcastDetailCache` 增加 `MAX_DETAIL_CACHE = 60` 容量上限淘汰，防止长会话内存无界增长；`index.html` 升至 `app.css?v=31`、`app.js?v=32`，`sw.js` 升至 `v5`。
   - **当前验证状态**：代码与单测均已静态复核；待在仓库根目录运行 `npm test` 与快速回归确认后改为 `[x]` 并部署。
 
 - [x] **FEAT-P2**（2026-11-18）实现免登录本地「我的收听」中心（关注播客 / 收听历史 / JSON 备份恢复 / OPML 导出）与 PC 桌面端全局播控快捷键

@@ -784,10 +784,11 @@ img {
 
 .rank-trend {
   font-size: 9.5px;
-  font-weight: 700;
+  font-weight: 600;
   line-height: 1.1;
   letter-spacing: -0.02em;
   white-space: nowrap;
+  opacity: 0.6;
 }
 
 .rank-trend.is-up {
@@ -1236,12 +1237,7 @@ img {
   font-size: 12.5px;
   font-weight: 500;
   color: var(--text);
-  margin-bottom: 8px;
   max-width: 100%;
-}
-
-.ep-pod-row .podcast-link-pill {
-  margin-bottom: 0;
 }
 
 .podcast-link-pill span {
