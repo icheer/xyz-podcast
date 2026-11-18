@@ -512,8 +512,9 @@ const AppRoot = {
     applyTheme() {
       document.documentElement.setAttribute("data-theme", this.theme);
       const color = this.theme === "dark" ? "#111114" : "#f7f4ec";
-      const metaTheme = document.querySelector('meta[name="theme-color"]');
-      if (metaTheme) metaTheme.setAttribute("content", color);
+      document.querySelectorAll('meta[name="theme-color"]').forEach((el) => {
+        el.setAttribute("content", color);
+      });
       const appleBar = document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]');
       if (appleBar) appleBar.setAttribute("content", this.theme === "dark" ? "black-translucent" : "default");
     },

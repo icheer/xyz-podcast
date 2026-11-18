@@ -165,15 +165,15 @@
 
 ## 前端设计审查与功能演进（2026-11-17 ~ 2026-11-18）
 
-- [/] **REFACTOR-P3**（2026-11-18）`app.css` 级联架构单源化重构与跨组件冗余逻辑收敛（100% 保持既有视觉与交互）
+- [x] **REFACTOR-P3**（2026-11-18）`app.css` 级联架构单源化重构、跨组件冗余逻辑收敛与细节体验打磨（100% 保持既有视觉与交互）
   - **CSS 架构重构 (`public/css/app.css`)**：
     - 消除多轮迭代追加在尾部的 ~80 处重复选择器覆盖：合并重复的 `:root` / `[data-theme="dark"]` 变量定义，将 Header、榜单卡片/表格、详情页 Hero/Shownotes/评论、迷你与全屏播放器、双抽屉（播放队列与我的收听）各自的最终生效样式归入单一职责分节（11 个清晰章节）。
     - 将原本分散在 5 处的 `@media (min-width: 768px)` 与多处窄屏/短屏/减少动态效果媒体查询统一收拢到底部响应式章节，确保 `.library-panel` 桌面端 `100dvh` 高度与 `.ep-pod-row .podcast-link-pill` 水平基线对齐更加严谨。
   - **JS 公共逻辑去重与内存边界**：
     - `public/js/utils.js` 抽离统一进度文案纯函数 `formatProgressBadge`（并在 `test/frontend.test.js` 增加单测），替换 `RankBoard.js`、`PodcastView.js`、`PlaylistDrawer.js`、`LibraryDrawer.js` 四处重复的收听百分比/已播完计算逻辑（同时统一频道页已播完单集显示为 `已播完`）。
     - `PlaylistDrawer.js` 合并重复的 5 秒撤销定时器代码，与 `LibraryDrawer.js` 共享 `.drawer-head-title` / `.drawer-head-actions` / `.drawer-thumb` / `.accent-text` 样式类，清理模板内联样式。
-    - `public/js/api.js` 为 `episodeDetailCache` / `podcastDetailCache` 增加 `MAX_DETAIL_CACHE = 60` 容量上限淘汰；`PlaylistDrawer.js` 升级为条目左→右 `--listen-pct` 背景进度条；`utils.js` 抽离 `inlineConfirmMixin` 为 `PlaylistDrawer`「清空」与 `LibraryDrawer`「清空历史」接入无模态框的红色高亮**原地二次确认**（`3.5s` 超时 / 点空白处 / 切 Tab / 按 `Esc` 自动取消，确认清空后仍保留 5 秒撤销兜底，含单测）；`index.html` 升至 `app.css?v=33`、`app.js?v=34`，`sw.js` 升至 `v7`。
-  - **当前验证状态**：代码与单测均已静态复核；待在仓库根目录运行 `npm test` 与快速回归确认后改为 `[x]` 并部署。
+    - `public/js/api.js` 为 `episodeDetailCache` / `podcastDetailCache` 增加 `MAX_DETAIL_CACHE = 60` 容量上限淘汰；`PlaylistDrawer.js` 升级为条目左→右 `--listen-pct` 背景进度条；`utils.js` 抽离 `inlineConfirmMixin` 为 `PlaylistDrawer`「清空」与 `LibraryDrawer`「清空历史」接入无模态框的红色高亮**原地二次确认**（`3.5s` 超时 / 点空白处 / 切 Tab / 按 `Esc` 自动取消，确认清空后仍保留 5 秒撤销兜底，含单测）；修复 Android PWA/WebAPK 底部虚拟按键导航栏被染成橙色的问题（移除 `site.webmanifest` 中写死的 `"theme_color": "#e04f26"` 并对齐 `"background_color": "#f7f4ec"`，`index.html` 改用浅/深双 `prefers-color-scheme` `<meta name="theme-color">` 配合脚本动态同步）；`index.html` 升至 `app.css?v=33`、`app.js?v=35`，`sw.js` 升至 `v8`。
+  - **验证结果**：`npm test` **24/24** 全部通过，`git diff --check` 无空白异常，已提交推送并触发 Cloudflare Workers Builds 自动部署。
 
 - [x] **FEAT-P2**（2026-11-18）实现免登录本地「我的收听」中心（关注播客 / 收听历史 / JSON 备份恢复 / OPML 导出）与 PC 桌面端全局播控快捷键
   - **P2-2「我的收听」中心完成内容**：
@@ -375,4 +375,4 @@
 | 2026-11-18 | PERF-03 | 内联微信首屏初始化，合并按需库加载器 | Chromium 首页 JS 18 → 16，CDN 直接 200，主要功能及单测 18/18 通过 | 本地验证 |
 | 2026-11-18 | FEAT-P0-P1 | 完成 P0（深链返回/404、SW修复、D1分类缓存+Edge Cache、深色防闪白、同步超时）与 P1（热评时间戳跳播、睡眠定时、榜单升降/新上榜+频道直跳+已听标记、锁屏进度同步、队列下一首/清已播/清空撤销、音频失效重刷）及新增单测 | 用户本地验收通过 | 已合入后续交付 |
 | 2026-11-18 | FEAT-P2 | 新增免登录本地「我的收听」抽屉（关注播客、收听历史、JSON 备份恢复、OPML 2.0 导出）、四榜与内页关注联动，以及 PC 全局播控快捷键（`Space` / `←` / `→` / `[` / `]` / `M` / `/`）与单测 | 用户本地验收通过 | 进入 `REFACTOR-P3` |
-| 2026-11-18 | REFACTOR-P3 | 重构单源化 `public/css/app.css`（消除尾部约 80 处重复级联覆盖、合并 5 处分散媒体查询为 11 个清晰章节）、抽离公共 `formatProgressBadge` 统一 4 处进度文案、为详情内存缓存增加 60 条上限淘汰、清理组件内联样式 | 代码与单测已静态复核（本会话绑定旧 cwd 未执行终端） | 在根目录运行 `npm test` 与快速回归后提交部署 |
+| 2026-11-18 | REFACTOR-P3 | 重构单源化 `public/css/app.css`（11 个清晰章节）、抽离公共 `formatProgressBadge` / `inlineConfirmMixin`、实现播放队列背景收听进度条与原地二次确认、修复 Android PWA 底部导航栏橙色背景问题 | `npm test` 24/24 全部通过，`git diff --check` 通过 | 已推送至 `main` 触发 Cloudflare 自动部署 |

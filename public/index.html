@@ -4,7 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="referrer" content="no-referrer" />
-  <meta name="theme-color" content="#f7f4ec" />
+  <meta name="theme-color" content="#f7f4ec" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#111114" media="(prefers-color-scheme: dark)" />
   <meta name="description" content="小宇宙热门播客排行榜与在线收听端" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -24,9 +25,11 @@
           ? prefs.theme === "dark"
           : Boolean(window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
         const theme = isDark ? "dark" : "light";
+        const themeColor = isDark ? "#111114" : "#f7f4ec";
         document.documentElement.setAttribute("data-theme", theme);
-        const metaTheme = document.querySelector('meta[name="theme-color"]');
-        if (metaTheme) metaTheme.setAttribute("content", isDark ? "#111114" : "#f7f4ec");
+        document.querySelectorAll('meta[name="theme-color"]').forEach((el) => {
+          el.setAttribute("content", themeColor);
+        });
         const appleBar = document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]');
         if (appleBar) appleBar.setAttribute("content", isDark ? "black-translucent" : "default");
       } catch {}
@@ -69,6 +72,6 @@
 </head>
 <body>
   <div id="app" v-cloak></div>
-  <script type="module" src="/js/app.js?v=34"></script>
+  <script type="module" src="/js/app.js?v=35"></script>
 </body>
 </html>
