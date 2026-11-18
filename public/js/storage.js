@@ -55,7 +55,16 @@ export function loadPrefs(storage = defaultStorage()) {
     ? Number(data.playbackRate)
     : 1.0;
   const loopMode = LOOP_MODES.includes(data.loopMode) ? data.loopMode : "sequential";
-  const theme = data.theme === "dark" ? "dark" : "light";
+  let theme = "light";
+  if (data.theme === "dark" || data.theme === "light") {
+    theme = data.theme;
+  } else if (
+    storage === defaultStorage() &&
+    typeof window !== "undefined" &&
+    window.matchMedia?.("(prefers-color-scheme: dark)")?.matches
+  ) {
+    theme = "dark";
+  }
   return { playbackRate: rate, loopMode, theme };
 }
 

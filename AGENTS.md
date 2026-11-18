@@ -206,30 +206,31 @@ xyz-podcast/
 1. **首页 4 榜单 (`/`, `/hot-podcasts`, `/hot-episodes-new`, `/new-podcasts`)**
    - 顶部固定导航（`position: fixed` + `--header-h` 动态内边距）：Logo（点击打开项目介绍与 GitHub 链接）、全局搜索框（380ms 防抖；手机由搜索按钮展开）、4 榜单 Tab 切换、播放列表按钮、主题切换与桌面同步时间。详情页仅保留精简品牌/操作栏。微信内通过 `index.html` 头部内联脚本提前恢复默认文字缩放，监听桥接就绪/字号菜单/页面恢复；微信作用域下html/body固定text-size-adjust为100%，普通浏览器不启用。项目介绍弹窗使用局部触摸边界拦截：遮罩、无溢出内容及上下边界阻止默认滚动，溢出内容允许在弹窗内滚动，避免背景列表穿透。
    - **虚拟滚动 (`RankBoard.js` + `computeVirtualWindow`)**：移动端 `.rank-cards` 与 PC 端 `.rank-table` `<tbody>` 均仅渲染可视窗口及前后缓冲区条目，动态测量并缓存实测行高，通过上下 spacer 保持总文档高度，避免长列表 DOM 膨胀。
-   - **移动端 (`< 768px`)**：卡片流布局（排名、正方形封面、主标题、播客名/主播、关键指标标签；单集卡片附「▶ 播放」「+ 队列」按钮）。
-   - **PC 端 (`>= 768px`)**：自适应高信息密度表格（支持列头排序、中位数提示），保留快捷播放/入队与进内页交互。
-   - 四榜Tab点击及横滑均使用router.replace，共用当前历史位置，不累积后退步骤；进入详情使用push，返回恢复最后榜单及其滚动位置。手机列表支持左右滑动切换相邻榜单Tab（左滑下一个，右滑上一个，首尾不循环）；仅<768px启用，排除控件、屏幕24px边缘、弹层、多指及取消手势，纵向起手不切换；方向锁12px、横移64px且大于纵移1.5倍、700ms内完成，横滑后抑制误点击。
+   - **移动端 (`< 768px`)**：卡片流布局（排名与升降/新上榜标识、正方形封面、主标题、可点击进频道的播客名/主播、分类与已听进度标签；单集卡片附「▶ 播放」「+ 队列」按钮）。
+   - **PC 端 (`>= 768px`)**：自适应高信息密度表格（支持列头排序、中位数提示、排名趋势、单集直跳频道与已听进度），保留快捷播放/入队与进内页交互。
+   - 四榜Tab点击及横滑均使用router.replace，共用当前历史位置，不累积后退步骤；进入详情使用push，返回恢复最后榜单及其滚动位置（外链冷启动直达内页时返回自动回退至 `/` 热榜首页，且详情页顶栏常驻「热榜」入口，未匹配路径走 404 兜底页）。手机列表支持左右滑动切换相邻榜单Tab（左滑下一个，右滑上一个，首尾不循环）；仅<768px启用，排除控件、屏幕24px边缘、弹层、多指及取消手势，纵向起手不切换；方向锁12px、横移64px且大于纵移1.5倍、700ms内完成，横滑后抑制误点击。
    - 触底 `IntersectionObserver` 自动加载下一页（或手动"加载更多"兜底）。
 2. **播客频道页 (`/podcast/:pid`)**
    - 展示频道封面、标题、主播、简介（可展开）、订阅/总集数、"去小宇宙官网"外链。
    - 最新 15 集列表：整卡点击或键盘 Enter/空格进入详情，独立提供「▶ 播放」「+ 加入播放列表」按钮；手机日期/时长/播放/评论独占一行，操作另行排列，以及「将本页 15 集全部加入播放列表」快捷操作；显示网页端 15 集限制提示。
 3. **单集播放页 (`/episode/:eid`)**
    - 展示单集封面、标题、可点击跳转到 `/podcast/:pid` 的所属播客链接、发布时间、时长、数据指标、付费/试听提示（如适用）、"去小宇宙官网"外链。
-   - 操作区：「▶ 播放 / ⏸ 暂停 / 继续播放」「+ 加入播放列表」。
+   - 操作区：「▶ 播放 / ⏸ 暂停 / 继续播放」「+ 加入播放列表」「下一首播放」（队列播放中且非当前集时显示）。
    - **Shownotes**：经 `DOMPurify.sanitize()` 净化渲染，长简介默认仅展示240px预览，底部叠加88px背景渐变遮罩（不依赖CSS mask），展开/收起文案采用主题强调色，点击展开全文/再次收起；短简介完整展示，无折叠按钮。基于ResizeObserver跟随图片及响应式内容高度变化；折叠时正文不可聚焦，避免Tab进入隐藏链接。识别文内 `HH:MM:SS` / `MM:SS` 时间戳转为可点击高亮按钮，点击即自动加载当前单集并跳转到对应秒数播放。
-   - **热评区**：渲染置顶/热评列表、IP 属地、徽章、点赞数及二级回复，并展示约 20 条热评限制提示。二级回复1～2条完整展示，不加遮罩或展开按钮；至少3条时才默认折叠并提供展开/收起。
+   - **热评区**：渲染置顶/热评列表、IP 属地、徽章、点赞数及二级回复，并展示约 20 条热评限制提示。评论正文与二级回复均通过纯文本切分（`parseTextWithTimestamps`，按单集时长过滤无效时钟时间，不经 `v-html`）支持点击时间戳直接空降跳播。二级回复1～2条完整展示，不加遮罩或展开按钮；至少3条时才默认折叠并提供展开/收起。
 
 ### 6.2 全局播放器与 `localStorage` 持久化
-- 根组件维护单一 `<audio>` 实例与 `playerState`（保证切换页面时音频持续播放）。
+- 根组件维护单一 `<audio>` 实例与 `playerState`（保证切换页面时音频持续播放；音频加载报错时自动强制重抓一次单集详情刷新 `enclosureUrl` 重试）。
 - 项目介绍、全屏播放器与队列通过 `overlayHistory.js` 使用Vue Router同URL历史状态：物理/浏览器返回优先关闭顶层弹层；手动收起/关闭消耗对应历史记录；播放器内跳转先清理弹层历史，再进入内页，音频与底层滚动保持。
 - **核心播控**：
   - 播放/暂停、进度条拖动（实时预览目标时间，松手 `seek`）。
   - **后退 15 秒 (`-15s`)**、**前进 30 秒 (`+30s`)**。
   - **倍速切换**：`0.75x`, `1.0x`, `1.25x`, `1.5x`, `1.75x`, `2.0x`。
   - **循环模式三态**：`sequential`（顺序播完列表后停）、`repeat-one`（单曲循环）、`repeat-all`（列表循环）。
-  - 集成浏览器 `navigator.mediaSession` API（锁屏封面、标题、快进/快退/上下曲控制）。
+  - **睡眠定时 (`sleepMode`)**：支持 `15/30/45/60 分钟` 倒计时（结束前 3 秒渐弱淡出音量）与 `播完本集自动停`。
+  - 集成浏览器 `navigator.mediaSession` API（锁屏封面、标题、快进/快退/上下曲控制，以及 `setPositionState` 实时同步倍速与播放进度）。
 - **播放列表 (`PlaylistDrawer`)**：
-  - 支持增删、一键清空、**SortableJS 拖拽排序**（配拖拽手柄避免与移动端页面滚动冲突），调序菜单提供上移/下移/置顶按钮；单条移除支持5秒撤销。手机按内容自适应高度并限制80dvh，桌面为440px侧栏。
+  - 支持增删、下一首播放插队、清除已播完单集、一键清空、**SortableJS 拖拽排序**（配拖拽手柄避免与移动端页面滚动冲突），调序菜单提供下一首/上移/下移/置顶按钮；单条移除、清除已播完与清空队列均支持5秒撤销。手机按内容自适应高度并限制80dvh，桌面为440px侧栏。
 - **进度保存与恢复 (`localStorage`)**：
   - Key 命名规范（建议前缀 `xyzp_v1_`）：
     - `xyzp_v1_queue`：当前播放列表及 `currentEid`
@@ -315,14 +316,11 @@ npm run deploy               # npx wrangler deploy
 - **最新 CDN 调整**：`PERF-01` 将入口页 5 个 unpkg 脚本固定为完整版本号。发布记录、文件路径、HTML 和 4 个测试文件检查通过。当前环境无法直接请求 unpkg，HTTP 状态待联网复核。
 - **最新脚本加载调整**：`PERF-02` 按实测 Location 固定 Vue Router 4.6.5 和 Lucide 1.74.0。首屏 3 个 CDN 脚本使用 `defer`，DOMPurify 和 SortableJS 按需加载。4 个测试文件及模拟慢加载、失败重试、播放列表关闭后再打开的检查通过。实际 CDN 请求待联网复核。
 - **最新首屏请求合并**：`PERF-03` 将微信字号初始化内联到 CSS 之前，按需库加载器合入 `utils.js`。本地 Chromium 冷缓存首页 JS 请求由 18 个降至 16 个。5 个固定 CDN 地址均直接返回 HTTP 200，首页渲染、队列拖拽初始化、详情净化和微信桥接模拟通过。单测 18/18。
-- **当前阶段**：`P7-04 已部署上线；P7-05 & P7-06 (移除下载功能、固定顶栏、榜单虚拟滚动) 代码已落盘，待根路径复测、清理遗留文件、提交并重新部署`
-- **已完成事项**：
-  - `Phase 0` ~ `Phase 7`（`P7-04` 已部署至 `https://xyz-podcast.icheer.workers.dev`，`wrangler.toml` 已绑定 D1 `224bbab0-b5e7-4547-9735-9038d63b8f53`）。
-  - `P7-05`：新增完整 PWA（`site.webmanifest`、`sw.js`、`icon.svg`、`icon-192.png`、`icon.png`、`icon-512.png`、动态 `theme-color`、`beforeinstallprompt` 安装按钮）、重构移动端两段式榜单项卡片、骨架屏、修复播放列表底部弹窗 `min-height: 56vh`（实测 `473px`）、修正 `app.css` 字重 `500/700` 与合成层问题、新增 `<keep-alive>` + `scrollKeeperMixin` 实现详情页后退不刷新列表并保留滚动位置，并编写 `README.md`。
-  - `P7-06`：移除前后端所有音频下载入口（移除 `EpisodeView.js` / `PlayerBar.js` "下载音频"按钮、`api.js` `buildAudioDownloadUrl` 与 `src/index.js` `/api/audio/download` 路由）；将 `.site-header` 改为 `position: fixed` 并通过 `ResizeObserver` 动态同步 `--header-h`；为 `RankBoard.js` 移动端卡片流与 PC 表格接入 `computeVirtualWindow` 动态测量虚拟滚动并补充单测；重构移动端 `.mini-player` 排版，并在 `AppIcon.js` 新增数字内嵌回环箭头的 `skip-back-15` / `skip-forward-30` 图标，显著扩展标题与进度显示宽度。
-- **当前注意**：旧目录问题已不影响当前会话；根目录命令、Wrangler dev 与本地浏览器已于本轮成功运行。P7-05/P7-06 仍需独立完成全部回归、清理与部署。
+- **最新 P0 + P1 全量升级（2026-11-18）**：`FEAT-P0-P1` 已完成代码落盘（零破坏性 D1 表结构变更，100% 兼容线上现有库）：
+  - **P0**：① 外链冷启动直达详情页返回自动回退 `/` 热榜首页 + 详情页顶栏增加「热榜」入口 + `/:pathMatch(.*)*` 404 兜底路由；② `sw.js` (`v3`) 仅对 `navigate` 请求回退 `"/"`，避免弱网下 `.js/.css` 被注入 HTML；③ `/api/boards/meta` 分类聚合缓存至 `app_state` (`genres:<version>`) 并为 `/api/boards/*` 启用 `Cache-Control` + 按版本隔离的 Worker `caches.default` 边缘缓存；④ `index.html` 首屏内联防深色闪白（FOUC）与系统深色自适应、`sync.js` 单页抓取 12s `AbortController` 超时、清空遗留 `src/handlers/download.js` 代理逻辑。
+  - **P1**：① 热评与二级回复时间戳纯文本切分一键空降跳播（`parseTextWithTimestamps`，按单集时长过滤无效时间，无 `v-html`）；② 全屏播放器新增睡眠定时器（`15/30/45/60分` 倒计时含 3s 音量渐弱 + `播完本集停`）；③ 榜单对比 `prev_sync_version` 展示 `↑ / ↓ / 新(NEW)` 趋势标识、单集榜关联 `podcastPid` 支持一键直跳 `/podcast/:pid`、单集榜透出 `已听 XX% / 已播完` 标签；④ `MediaSession.setPositionState` 锁屏进度同步、队列新增「下一首播放」与「清已播」、清空/清已播/单删统一 5 秒撤销、音频报错自动强制重拉单集详情刷新 `enclosureUrl` 重试。资源版本升至 `app.css?v=28`、`app.js?v=30`。
+- **当前注意**：发起本轮会话的终端 `cwd` 仍指向已删除的嵌套目录 `xyz-podcast/xyz-podcast`，因此本轮代码改动后需在仓库根目录 `/home/projects/_ai-apps/xyz-podcast` 运行单测、浏览器验收与部署。
 - **下一位 Agent / 用户终端的精确动作**：
-  1. 删除已下线的下载代理文件并运行单测：
-     `cd /home/projects/_ai-apps/xyz-podcast && rm -f src/handlers/download.js && npm test`
-  2. 本地 `npm run dev` 或部署后实测：无「下载音频」按钮、顶栏滚动全程固定不遮挡内容、榜单大列表滚动仅渲染视口附近少量 DOM、详情页后退保留列表与滚动位置；随后将 `CHECKLIST.md` 中 `P7-05` / `P7-06` 改为 `[x]`。
-  3. 提交并重新部署：`git add -A && git commit -m "feat: remove audio download, fix header, and add virtual scrolling" && npm run deploy`
+  1. `cd /home/projects/_ai-apps/xyz-podcast && rm -f src/handlers/download.js && npm test`
+  2. `npm run dev` 验证深链返回、404 路由、热评时间戳跳播、睡眠定时、榜单升降趋势与频道直跳、队列下一首/清已播/撤销及边缘缓存头，随后将 `CHECKLIST.md` 中 `FEAT-P0-P1`（及 `P7-05`/`P7-06`）标为 `[x]`。
+  3. 提交并部署：`git add -A && git commit -m "feat: implement P0 stability/caching fixes and P1 listening/discovery upgrades" && npm run deploy`

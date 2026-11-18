@@ -1,7 +1,13 @@
-const CACHE_NAME = "xyz-podcast-shell-v2";
+const CACHE_NAME = "xyz-podcast-shell-v3";
 const SHELL_ASSETS = [
   "/",
   "/css/app.css",
+  "/js/app.js",
+  "/js/api.js",
+  "/js/storage.js",
+  "/js/utils.js",
+  "/js/xyzParser.js",
+  "/js/overlayHistory.js",
   "/site.webmanifest",
   "/icon.svg",
   "/icon.png",
@@ -37,12 +43,18 @@ self.addEventListener("fetch", (event) => {
   if (req.method !== "GET") return;
   const url = new URL(req.url);
 
-  // Only handle same-origin static assets; never cache /api/* or external origins
-  if (url.origin !== self.location.origin || url.pathname.startsWith("/api/")) {
+  // Only handle same-origin static assets; never cache /api/*, /__scheduled, or external origins
+  if (
+    url.origin !== self.location.origin ||
+    url.pathname.startsWith("/api/") ||
+    url.pathname === "/__scheduled"
+  ) {
     return;
   }
 
-  // Network-first for HTML navigation & JS/CSS so deployments apply immediately, fallback to cache offline
+  const isNavigation = req.mode === "navigate";
+
+  // Network-first so deployments take effect immediately; safe per-type offline fallback
   event.respondWith(
     fetch(req)
       .then((res) => {
@@ -52,6 +64,18 @@ self.addEventListener("fetch", (event) => {
         }
         return res;
       })
-      .catch(() => caches.match(req).then((cached) => cached || caches.match("/")))
+      .catch(async () => {
+        const exact = await caches.match(req);
+        if (exact) return exact;
+        if (isNavigation) {
+          const shell = await caches.match("/");
+          if (shell) return shell;
+        } else {
+          // Match static JS/CSS across version query strings (?v=...) without returning HTML
+          const ignoreQuery = await caches.match(url.pathname, { ignoreSearch: true });
+          if (ignoreQuery) return ignoreQuery;
+        }
+        throw new Error("Network unavailable and asset is not cached");
+      })
   );
 });

@@ -89,7 +89,9 @@ export default {
       const lucide = typeof window !== "undefined" ? window.lucide : null;
       if (!lucide || !lucide.icons || !lucide.createElement) return;
       const key = toPascalCase(this.name);
-      const iconDef = lucide.icons[key];
+      const iconDef =
+        lucide.icons[key] ||
+        (key === "Home" ? lucide.icons.House : null);
       if (!iconDef) return;
       const svg = lucide.createElement(iconDef, {
         width: this.size,

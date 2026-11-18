@@ -1,6 +1,20 @@
-import { getActiveSyncVersion, getEffectiveSyncVersion } from "../db/schema.js";
+import {
+  computeBoardGenres,
+  getActiveSyncVersion,
+  getCachedBoardGenres,
+  getEffectiveSyncVersion,
+  getPreviousSyncVersion,
+} from "../db/schema.js";
 import { BOARD_CONFIG, BOARD_ORDER } from "../db/sync.js";
 import { clampInt, errorJson, json, safeJsonParse } from "../utils/http.js";
+
+const COMPLETE_CACHE_HEADERS = {
+  "Cache-Control": "public, max-age=60, stale-while-revalidate=300",
+};
+
+const PARTIAL_CACHE_HEADERS = {
+  "Cache-Control": "public, max-age=10",
+};
 
 const EPISODE_SORT_COLUMNS = {
   rank: "rank",
@@ -29,12 +43,42 @@ function escapeLikePattern(str) {
   return str.replace(/[\\%_]/g, "\\$&");
 }
 
-function mapEpisodeRow(row) {
+function getEdgeCache() {
+  return typeof caches !== "undefined" && caches?.default ? caches.default : null;
+}
+
+function buildVersionedCacheRequest(request, syncVersion, prevVersion = "") {
+  if (!request?.url || !syncVersion) return null;
+  const cacheUrl = new URL(request.url);
+  cacheUrl.searchParams.set("__sv", syncVersion);
+  if (prevVersion) cacheUrl.searchParams.set("__pv", prevVersion);
+  return new Request(cacheUrl.toString(), { method: "GET" });
+}
+
+function computeRankTrend(row, hasPrevBaseline) {
+  if (!hasPrevBaseline) {
+    return { rankDelta: null, isNew: false };
+  }
+  if (row.prev_rank !== null && row.prev_rank !== undefined) {
+    const prevRank = Number(row.prev_rank);
+    const currRank = Number(row.rank);
+    if (Number.isFinite(prevRank) && Number.isFinite(currRank) && prevRank > 0 && currRank > 0) {
+      return { rankDelta: prevRank - currRank, isNew: false };
+    }
+  }
+  return { rankDelta: null, isNew: true };
+}
+
+export function mapEpisodeRow(row, hasPrevBaseline = false) {
+  const { rankDelta, isNew } = computeRankTrend(row, hasPrevBaseline);
   return {
     rank: row.rank,
+    rankDelta,
+    isNew,
     eid: row.eid,
     title: row.title,
     podcastID: row.podcast_id_raw,
+    podcastPid: row.podcast_pid || "",
     podcastName: row.podcast_name,
     logoURL: row.logo_url,
     link: row.link,
@@ -51,9 +95,12 @@ function mapEpisodeRow(row) {
   };
 }
 
-function mapPodcastRow(row) {
+export function mapPodcastRow(row, hasPrevBaseline = false) {
+  const { rankDelta, isNew } = computeRankTrend(row, hasPrevBaseline);
   return {
     rank: row.rank,
+    rankDelta,
+    isNew,
     pid: row.pid,
     id: row.raw_id,
     name: row.name,
@@ -76,48 +123,41 @@ function mapPodcastRow(row) {
   };
 }
 
-export async function handleBoardsMeta(env) {
+export async function handleBoardsMeta(env, request = null, ctx = null) {
   const [activeVersion, syncVersion] = await Promise.all([
     getActiveSyncVersion(env.DB),
     getEffectiveSyncVersion(env.DB),
   ]);
 
   if (!syncVersion) {
-    return json({
-      syncVersion: null,
-      isComplete: false,
-      updatedAt: null,
-      boards: {},
-    });
+    return json(
+      {
+        syncVersion: null,
+        isComplete: false,
+        updatedAt: null,
+        boards: {},
+      },
+      200,
+      { "Cache-Control": "no-store" }
+    );
   }
 
-  const [metaRows, epGenresRows, podGenresRows] = await Promise.all([
+  const isActiveVersion = activeVersion === syncVersion;
+  const edgeCache = getEdgeCache();
+  const cacheReq = isActiveVersion ? buildVersionedCacheRequest(request, syncVersion) : null;
+  if (edgeCache && cacheReq) {
+    const hit = await edgeCache.match(cacheReq);
+    if (hit) return hit;
+  }
+
+  const [metaRows, cachedGenres] = await Promise.all([
     env.DB.prepare("SELECT * FROM board_meta WHERE sync_version = ?1").bind(syncVersion).all(),
-    env.DB.prepare(
-      `SELECT board, primary_genre AS genre, COUNT(*) AS count
-       FROM episodes_rank
-       WHERE sync_version = ?1 AND primary_genre != ''
-       GROUP BY board, primary_genre
-       ORDER BY count DESC`
-    )
-      .bind(syncVersion)
-      .all(),
-    env.DB.prepare(
-      `SELECT board, primary_genre AS genre, COUNT(*) AS count
-       FROM podcasts_rank
-       WHERE sync_version = ?1 AND primary_genre != ''
-       GROUP BY board, primary_genre
-       ORDER BY count DESC`
-    )
-      .bind(syncVersion)
-      .all(),
+    getCachedBoardGenres(env.DB, syncVersion),
   ]);
 
-  const genresByBoard = {};
-  for (const row of [...(epGenresRows?.results || []), ...(podGenresRows?.results || [])]) {
-    if (!genresByBoard[row.board]) genresByBoard[row.board] = [];
-    genresByBoard[row.board].push({ genre: row.genre, count: row.count });
-  }
+  const genresByBoard =
+    cachedGenres ||
+    (await computeBoardGenres(env.DB, syncVersion, { persist: isActiveVersion }));
 
   const boards = {};
   let latestUpdatedAt = null;
@@ -135,21 +175,37 @@ export async function handleBoardsMeta(env) {
     }
   }
 
-  return json({
-    syncVersion,
-    isComplete: activeVersion === syncVersion && BOARD_ORDER.every((b) => Boolean(boards[b])),
-    updatedAt: latestUpdatedAt,
-    boards,
-  });
+  const isComplete = isActiveVersion && BOARD_ORDER.every((b) => Boolean(boards[b]));
+  const response = json(
+    {
+      syncVersion,
+      isComplete,
+      updatedAt: latestUpdatedAt,
+      boards,
+    },
+    200,
+    isComplete ? COMPLETE_CACHE_HEADERS : PARTIAL_CACHE_HEADERS
+  );
+
+  if (edgeCache && cacheReq && isComplete) {
+    const putPromise = edgeCache.put(cacheReq, response.clone());
+    if (ctx?.waitUntil) ctx.waitUntil(putPromise);
+    else await putPromise.catch(() => {});
+  }
+
+  return response;
 }
 
-export async function handleBoardQuery(board, url, env) {
+export async function handleBoardQuery(board, url, env, request = null, ctx = null) {
   const cfg = BOARD_CONFIG[board];
   if (!cfg) {
     return errorJson(`Unsupported board: ${board}`, 400);
   }
 
-  const syncVersion = await getEffectiveSyncVersion(env.DB);
+  const [activeVersion, syncVersion] = await Promise.all([
+    getActiveSyncVersion(env.DB),
+    getEffectiveSyncVersion(env.DB),
+  ]);
   const offset = clampInt(url.searchParams.get("offset"), 0, 0, 100000);
   const limit = clampInt(url.searchParams.get("limit"), 50, 1, 100);
   const q = (url.searchParams.get("q") || "").trim().slice(0, 100);
@@ -158,16 +214,31 @@ export async function handleBoardQuery(board, url, env) {
   const dirParam = (url.searchParams.get("dir") || "").trim().toLowerCase();
 
   if (!syncVersion) {
-    return json({
-      board,
-      syncVersion: null,
-      updatedAt: null,
-      total: 0,
-      offset,
-      limit,
-      medianValues: {},
-      items: [],
-    });
+    return json(
+      {
+        board,
+        syncVersion: null,
+        updatedAt: null,
+        total: 0,
+        offset,
+        limit,
+        medianValues: {},
+        items: [],
+      },
+      200,
+      { "Cache-Control": "no-store" }
+    );
+  }
+
+  const prevVersion = await getPreviousSyncVersion(env.DB, syncVersion);
+  const isActiveVersion = activeVersion === syncVersion;
+  const edgeCache = getEdgeCache();
+  const cacheReq = isActiveVersion
+    ? buildVersionedCacheRequest(request, syncVersion, prevVersion || "")
+    : null;
+  if (edgeCache && cacheReq) {
+    const hit = await edgeCache.match(cacheReq);
+    if (hit) return hit;
   }
 
   const isEpisode = cfg.type === "episode";
@@ -183,12 +254,12 @@ export async function handleBoardQuery(board, url, env) {
         : "DESC";
 
   const where = ["sync_version = ?1", "board = ?2"];
-  const params = [syncVersion, board];
+  const baseParams = [syncVersion, board];
   let idx = 3;
 
   if (genre && genre !== "all") {
     where.push(`primary_genre = ?${idx}`);
-    params.push(genre);
+    baseParams.push(genre);
     idx += 1;
   }
 
@@ -203,35 +274,91 @@ export async function handleBoardQuery(board, url, env) {
         `(name LIKE ?${idx} ESCAPE '\\' OR authors_text LIKE ?${idx} ESCAPE '\\' OR primary_genre LIKE ?${idx} ESCAPE '\\')`
       );
     }
-    params.push(pattern);
+    baseParams.push(pattern);
     idx += 1;
   }
 
   const whereSql = where.join(" AND ");
+  const limitIdx = idx;
+  const offsetIdx = idx + 1;
+  const prevVerIdx = idx + 2;
   const countSql = `SELECT COUNT(*) AS total FROM ${table} WHERE ${whereSql}`;
-  const dataSql = `SELECT * FROM ${table} WHERE ${whereSql} ORDER BY ${sortCol} ${sortDir}, rank ASC LIMIT ?${idx} OFFSET ?${idx + 1}`;
 
-  const [metaRow, countRow, itemsRes] = await Promise.all([
+  const dataSql = isEpisode
+    ? `WITH page AS (
+         SELECT * FROM episodes_rank
+         WHERE ${whereSql}
+         ORDER BY ${sortCol} ${sortDir}, rank ASC
+         LIMIT ?${limitIdx} OFFSET ?${offsetIdx}
+       )
+       SELECT
+         page.*,
+         prev.rank AS prev_rank,
+         COALESCE(NULLIF(pod.pid, ''), NULLIF(npod.pid, ''), '') AS podcast_pid
+       FROM page
+       LEFT JOIN episodes_rank prev
+         ON prev.sync_version = ?${prevVerIdx} AND prev.board = page.board AND prev.eid = page.eid
+       LEFT JOIN podcasts_rank pod
+         ON page.podcast_id_raw != '' AND pod.sync_version = page.sync_version AND pod.board = 'podcasts' AND pod.raw_id = page.podcast_id_raw
+       LEFT JOIN podcasts_rank npod
+         ON page.podcast_id_raw != '' AND npod.sync_version = page.sync_version AND npod.board = 'new-podcasts' AND npod.raw_id = page.podcast_id_raw
+       ORDER BY page.${sortCol} ${sortDir}, page.rank ASC`
+    : `WITH page AS (
+         SELECT * FROM podcasts_rank
+         WHERE ${whereSql}
+         ORDER BY ${sortCol} ${sortDir}, rank ASC
+         LIMIT ?${limitIdx} OFFSET ?${offsetIdx}
+       )
+       SELECT
+         page.*,
+         prev.rank AS prev_rank
+       FROM page
+       LEFT JOIN podcasts_rank prev
+         ON prev.sync_version = ?${prevVerIdx} AND prev.board = page.board AND prev.raw_id = page.raw_id
+       ORDER BY page.${sortCol} ${sortDir}, page.rank ASC`;
+
+  const [metaRow, prevMetaRow, countRow, itemsRes] = await Promise.all([
     env.DB.prepare("SELECT median_values_json, updated_at FROM board_meta WHERE sync_version = ?1 AND board = ?2")
       .bind(syncVersion, board)
       .first(),
-    env.DB.prepare(countSql).bind(...params).first(),
-    env.DB.prepare(dataSql).bind(...params, limit, offset).all(),
+    prevVersion
+      ? env.DB.prepare("SELECT 1 AS ok FROM board_meta WHERE sync_version = ?1 AND board = ?2")
+          .bind(prevVersion, board)
+          .first()
+      : Promise.resolve(null),
+    env.DB.prepare(countSql).bind(...baseParams).first(),
+    env.DB.prepare(dataSql).bind(...baseParams, limit, offset, prevVersion || "").all(),
   ]);
 
+  const hasPrevBaseline = Boolean(prevMetaRow?.ok);
   const rows = itemsRes?.results || [];
-  const items = rows.map(isEpisode ? mapEpisodeRow : mapPodcastRow);
+  const items = rows.map((row) =>
+    isEpisode ? mapEpisodeRow(row, hasPrevBaseline) : mapPodcastRow(row, hasPrevBaseline)
+  );
 
-  return json({
-    board,
-    syncVersion,
-    updatedAt: metaRow?.updated_at || null,
-    total: Number(countRow?.total) || 0,
-    offset,
-    limit,
-    sort: resolvedSortKey,
-    dir: sortDir.toLowerCase(),
-    medianValues: safeJsonParse(metaRow?.median_values_json, {}),
-    items,
-  });
+  const response = json(
+    {
+      board,
+      syncVersion,
+      prevSyncVersion: hasPrevBaseline ? prevVersion : null,
+      updatedAt: metaRow?.updated_at || null,
+      total: Number(countRow?.total) || 0,
+      offset,
+      limit,
+      sort: resolvedSortKey,
+      dir: sortDir.toLowerCase(),
+      medianValues: safeJsonParse(metaRow?.median_values_json, {}),
+      items,
+    },
+    200,
+    isActiveVersion ? COMPLETE_CACHE_HEADERS : PARTIAL_CACHE_HEADERS
+  );
+
+  if (edgeCache && cacheReq && isActiveVersion) {
+    const putPromise = edgeCache.put(cacheReq, response.clone());
+    if (ctx?.waitUntil) ctx.waitUntil(putPromise);
+    else await putPromise.catch(() => {});
+  }
+
+  return response;
 }

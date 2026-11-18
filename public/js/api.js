@@ -81,8 +81,8 @@ async function fetchWithFallback(directUrl, fallbackApiUrl, parseFn, id) {
   }
 }
 
-export async function fetchPodcastDetail(pid) {
-  if (podcastDetailCache.has(pid)) {
+export async function fetchPodcastDetail(pid, { forceRefresh = false } = {}) {
+  if (!forceRefresh && podcastDetailCache.has(pid)) {
     return podcastDetailCache.get(pid);
   }
   const data = await fetchWithFallback(
@@ -95,8 +95,8 @@ export async function fetchPodcastDetail(pid) {
   return data;
 }
 
-export async function fetchEpisodeDetail(eid) {
-  if (episodeDetailCache.has(eid)) {
+export async function fetchEpisodeDetail(eid, { forceRefresh = false } = {}) {
+  if (!forceRefresh && episodeDetailCache.has(eid)) {
     return episodeDetailCache.get(eid);
   }
   const data = await fetchWithFallback(

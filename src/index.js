@@ -34,7 +34,7 @@ export default {
   },
 };
 
-async function handleApi(request, env, _ctx, url) {
+async function handleApi(request, env, ctx, url) {
   const path = url.pathname;
   const method = request.method;
 
@@ -51,12 +51,12 @@ async function handleApi(request, env, _ctx, url) {
   }
 
   if (path === "/api/boards/meta" && method === "GET") {
-    return handleBoardsMeta(env);
+    return handleBoardsMeta(env, request, ctx);
   }
 
   const boardMatch = path.match(/^\/api\/boards\/([a-z-]+)$/);
   if (boardMatch && method === "GET") {
-    return handleBoardQuery(boardMatch[1], url, env);
+    return handleBoardQuery(boardMatch[1], url, env, request, ctx);
   }
 
   const podcastMatch = path.match(/^\/api\/xiaoyuzhou\/podcast\/([^/]+)$/);

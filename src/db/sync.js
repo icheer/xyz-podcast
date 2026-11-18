@@ -2,7 +2,9 @@ import {
   activateSyncVersion,
   batchExecute,
   cleanupOldSyncVersions,
+  computeBoardGenres,
   getActiveSyncVersion,
+  setPreviousSyncVersion,
 } from "./schema.js";
 import { safeJsonParse } from "../utils/http.js";
 
@@ -280,19 +282,33 @@ function buildPodcastUpsertStmt(db, row) {
     );
 }
 
-async function fetchBoardPage(fetchFn, board, offset, limit = PAGE_LIMIT) {
+async function fetchBoardPage(fetchFn, board, offset, limit = PAGE_LIMIT, timeoutMs = 12_000) {
   const cfg = BOARD_CONFIG[board];
   if (!cfg) throw new Error(`Unknown board: ${board}`);
   const url = `${cfg.endpoint}?offset=${offset}&limit=${limit}`;
-  const res = await fetchFn(url, { headers: XYZ_HEADERS });
-  if (!res.ok) {
-    throw new Error(`Upstream ${board} offset=${offset} failed with HTTP ${res.status}`);
+  const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+  const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+  try {
+    const res = await fetchFn(url, {
+      headers: XYZ_HEADERS,
+      signal: controller ? controller.signal : undefined,
+    });
+    if (!res.ok) {
+      throw new Error(`Upstream ${board} offset=${offset} failed with HTTP ${res.status}`);
+    }
+    const data = await res.json();
+    if (!data || !Array.isArray(data.items)) {
+      throw new Error(`Upstream ${board} offset=${offset} returned malformed JSON`);
+    }
+    return data;
+  } catch (err) {
+    if (err?.name === "AbortError") {
+      throw new Error(`Upstream ${board} offset=${offset} timed out after ${timeoutMs}ms`);
+    }
+    throw err;
+  } finally {
+    if (timer) clearTimeout(timer);
   }
-  const data = await res.json();
-  if (!data || !Array.isArray(data.items)) {
-    throw new Error(`Upstream ${board} offset=${offset} returned malformed JSON`);
-  }
-  return data;
 }
 
 /**
@@ -423,6 +439,7 @@ export async function runSyncBatch(db, options = {}) {
 
     if (completedAll) {
       const prevActive = await getActiveSyncVersion(db);
+      await computeBoardGenres(db, runId, { persist: true, nowIso }).catch(() => {});
       await db
         .prepare(
           `UPDATE sync_runs
@@ -433,6 +450,9 @@ export async function runSyncBatch(db, options = {}) {
         )
         .bind(runId, JSON.stringify(boardTotals), pagesFetchedTotal, itemsWrittenTotal, nowIso)
         .run();
+      if (prevActive && prevActive !== runId) {
+        await setPreviousSyncVersion(db, prevActive, nowIso);
+      }
       await activateSyncVersion(db, runId, nowIso);
       await cleanupOldSyncVersions(db, [runId, prevActive]);
     } else {

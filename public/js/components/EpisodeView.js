@@ -5,6 +5,7 @@ import {
   formatDateTime,
   formatDurationSeconds,
   loadDOMPurify,
+  parseTextWithTimestamps,
   renderShownotesHtml,
 } from "../utils.js";
 import AppIcon from "./AppIcon.js";
@@ -30,6 +31,10 @@ export default {
   computed: {
     eid() {
       return this.$route.params.eid;
+    },
+    hasHistoryBack() {
+      void this.$route.fullPath;
+      return Boolean(typeof window !== "undefined" && window.history.state?.back);
     },
     isCurrent() {
       return this.player.currentEid === this.eid;
@@ -165,10 +170,17 @@ export default {
       }
       this.playerActions.enqueueTrack(this.buildTrack());
     },
-    onShownotesClick(evt) {
-      const btn = evt.target?.closest?.(".ts-jump-btn");
-      if (!btn) return;
-      const seconds = Number(btn.getAttribute("data-seconds"));
+    handlePlayNext() {
+      if (!this.episode?.enclosureUrl) {
+        this.playerActions.showToast("当前单集没有可用的公开音频地址");
+        return;
+      }
+      this.playerActions.enqueueNext(this.buildTrack());
+    },
+    commentSegments(text) {
+      return parseTextWithTimestamps(text, this.episode?.duration || 0);
+    },
+    jumpToEpisodeSeconds(seconds) {
       if (!Number.isFinite(seconds) || seconds < 0) return;
       if (!this.episode?.enclosureUrl) {
         this.playerActions.showToast("暂无可用音频地址");
@@ -184,13 +196,19 @@ export default {
       }
       this.playerActions.showToast(`已跳转到 ${formatDurationSeconds(seconds)}`);
     },
+    onShownotesClick(evt) {
+      const btn = evt.target?.closest?.(".ts-jump-btn");
+      if (!btn) return;
+      const seconds = Number(btn.getAttribute("data-seconds"));
+      this.jumpToEpisodeSeconds(seconds);
+    },
   },
   template: `
     <div>
       <div class="back-bar">
-        <button type="button" class="btn sm" @click="$router.back()">
-          <app-icon name="arrow-left" :size="15" />
-          <span>返回</span>
+        <button type="button" class="btn sm" @click="playerActions.smartBack()">
+          <app-icon :name="hasHistoryBack ? 'arrow-left' : 'home'" :size="15" />
+          <span>{{ hasHistoryBack ? '返回' : '逛热榜首页' }}</span>
         </button>
         <a
           v-if="sourceUrl"
@@ -205,7 +223,7 @@ export default {
       </div>
 
       <div v-if="loading" class="skeleton-list" aria-label="加载中">
-        <div v-for="n in 3" :key="n" class="skeleton-card"></div>
+        <div v-for="n in 3" :key="n" class="skeleton-card"><span class="skeleton-cover"></span><span class="skeleton-copy"><i></i><i></i></span></div>
       </div>
 
       <div v-else-if="errorMsg" class="state-box error">
@@ -259,6 +277,16 @@ export default {
             <button type="button" class="btn" @click="handleEnqueue">
               <app-icon :name="isInQueue ? 'check' : 'plus'" :size="16" />
               <span>{{ isInQueue ? '已在队列中' : '加入播放列表' }}</span>
+            </button>
+
+            <button
+              v-if="player.currentEid && !isCurrent"
+              type="button"
+              class="btn"
+              @click="handlePlayNext"
+            >
+              <app-icon name="play" :size="15" />
+              <span>下一首播放</span>
             </button>
           </div>
         </section>
@@ -337,13 +365,12 @@ export default {
                 </div>
               </div>
 
-              <div class="comment-text">{{ c.text }}</div>
+              <div class="comment-text"><template v-for="(seg, si) in commentSegments(c.text)" :key="si"><button v-if="seg.type === 'ts'" type="button" class="ts-jump-btn comment-ts-btn" @click="jumpToEpisodeSeconds(seg.seconds)">{{ seg.text }}</button><template v-else>{{ seg.text }}</template></template></div>
 
               <div v-if="c.replies && c.replies.length > 0" class="comment-replies" :class="{ collapsed: c.replies.length >= 3 && !expandedReplies[c.id] }" :id="'replies-' + c.id">
                 <div v-for="r in c.replies" :key="r.id" class="reply-item">
                   <strong>{{ r.author.nickname }}</strong>
-                  <span v-if="r.replyToNickname" style="color: var(--text-muted);"> 回复 @{{ r.replyToNickname }}</span>：
-                  <span>{{ r.text }}</span>
+                  <span v-if="r.replyToNickname" style="color: var(--text-muted);"> 回复 @{{ r.replyToNickname }}</span>：<template v-for="(seg, si) in commentSegments(r.text)" :key="si"><button v-if="seg.type === 'ts'" type="button" class="ts-jump-btn comment-ts-btn" @click="jumpToEpisodeSeconds(seg.seconds)">{{ seg.text }}</button><template v-else>{{ seg.text }}</template></template>
                 </div>
               </div>
               <button v-if="c.replies?.length >= 3" type="button" class="replies-toggle" :aria-expanded="!!expandedReplies[c.id]" :aria-controls="'replies-' + c.id" @click="expandedReplies[c.id] = !expandedReplies[c.id]">{{ expandedReplies[c.id] ? '收起回复' : '展开回复 (' + c.replies.length + ')' }}</button>

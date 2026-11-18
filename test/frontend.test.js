@@ -7,6 +7,7 @@ import {
   formatMinutes,
   formatPercent,
   injectTimestampButtons,
+  parseTextWithTimestamps,
   parseTimestampToSeconds,
 } from "../public/js/utils.js";
 import {
@@ -142,4 +143,27 @@ test("computeVirtualWindow slices large lists cleanly with custom height caches"
   assert.equal(varWin.topSpacerPx, 350);
   assert.equal(varWin.bottomSpacerPx, 100);
   assert.equal(varWin.totalHeight, 630);
+});
+
+test("parseTextWithTimestamps splits comment timestamps safely and respects maxSeconds", () => {
+  assert.deepEqual(parseTextWithTimestamps(""), []);
+  assert.deepEqual(parseTextWithTimestamps("纯文本评论无时间戳"), [
+    { type: "text", text: "纯文本评论无时间戳" },
+  ]);
+
+  const segs = parseTextWithTimestamps("空降 04:42 太好笑了，1:02:15 总结到位，12:99 无效", 4000);
+  assert.deepEqual(segs, [
+    { type: "text", text: "空降 " },
+    { type: "ts", text: "04:42", seconds: 282 },
+    { type: "text", text: " 太好笑了，" },
+    { type: "ts", text: "1:02:15", seconds: 3735 },
+    { type: "text", text: " 总结到位，12:99 无效" },
+  ]);
+
+  // Clock time exceeding episode duration (e.g., 23:30 = 1410s on a 600s episode) stays plain text
+  const bounded = parseTextWithTimestamps("02:10 亮点，晚上 23:30 打卡", 600);
+  assert.deepEqual(bounded, [
+    { type: "ts", text: "02:10", seconds: 130 },
+    { type: "text", text: " 亮点，晚上 23:30 打卡" },
+  ]);
 });

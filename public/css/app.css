@@ -1853,3 +1853,121 @@ button.queue-info { text-align: left; white-space: normal; }
 }
 
 @media (max-width: 359px) { .episode-stats { gap: 3px; font-size: 10.5px; } }
+
+/* ---------- P0 & P1 Enhancements (Rank Trends, Channel Links, Sleep Timer, Comment Jump, 404) ---------- */
+.not-found-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 56px 20px;
+}
+
+.rank-col {
+  width: 18px;
+  min-width: 18px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  overflow: visible;
+}
+
+.table-rank-cell {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-width: 24px;
+}
+
+.rank-trend {
+  font-size: 9.5px;
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+}
+
+.rank-trend.is-up {
+  color: var(--success);
+}
+
+.rank-trend.is-down {
+  color: var(--text-muted);
+}
+
+.rank-trend.is-new {
+  color: var(--accent);
+}
+
+.card-pod-link,
+.table-pod-link {
+  text-align: left;
+  padding: 0;
+  border-radius: 4px;
+  transition: color 140ms;
+}
+
+.card-pod-link:hover,
+.table-pod-link:hover {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.table-sub-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin-top: 1px;
+}
+
+.table-sub-row > .table-sub {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.ep-listen-tag {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: 5px;
+  font-size: 10px;
+  font-weight: 500;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.ep-listen-tag.done {
+  background: var(--surface-soft);
+  color: var(--text-muted);
+}
+
+.comment-ts-btn {
+  padding: 0 6px;
+  margin: 0 2px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  vertical-align: baseline;
+}
+
+.util-btn.is-active {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.queue-menu-text-btn {
+  height: 44px;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--accent);
+  border-radius: 7px;
+}
+
+.queue-menu-text-btn:hover {
+  background: var(--accent-soft);
+}

@@ -1,4 +1,4 @@
-import { fetchBoardsMeta } from "./api.js";
+import { fetchBoardsMeta, fetchEpisodeDetail } from "./api.js";
 import { createOverlayHistory } from "./overlayHistory.js";
 import {
   LOOP_MODES,
@@ -64,6 +64,25 @@ const routes = [
     name: "EpisodeView",
     component: EpisodeView,
   },
+  {
+    path: "/:pathMatch(.*)*",
+    name: "NotFound",
+    component: {
+      name: "NotFoundView",
+      components: { AppIcon },
+      template: `
+        <section class="state-box not-found-box">
+          <app-icon name="compass" :size="32" style="color: var(--accent); margin-bottom: 10px;" />
+          <h2 style="font-size: 18px; color: var(--text); margin-bottom: 6px;">未找到该页面</h2>
+          <p style="font-size: 13.5px; margin-bottom: 16px;">链接可能已失效或地址输入有误</p>
+          <router-link to="/" class="btn primary sm">
+            <app-icon name="home" :size="15" />
+            <span>返回热榜首页</span>
+          </router-link>
+        </section>
+      `,
+    },
+  },
 ];
 
 const router = createRouter({
@@ -115,6 +134,9 @@ const AppRoot = {
         duration: 0,
         playbackRate: prefs.playbackRate,
         loopMode: prefs.loopMode,
+        sleepMode: "off",
+        sleepEndsAt: 0,
+        sleepRemainingSec: 0,
         expanded: false,
         playlistOpen: false,
       },
@@ -127,8 +149,11 @@ const AppRoot = {
         getCurrentTrack: this.getCurrentTrack,
         playTrack: this.playTrack,
         enqueueTrack: this.enqueueTrack,
+        enqueueNext: this.enqueueNext,
         enqueueMany: this.enqueueMany,
         removeFromQueue: this.removeFromQueue,
+        clearFinishedFromQueue: this.clearFinishedFromQueue,
+        restoreQueueSnapshot: this.restoreQueueSnapshot,
         clearQueue: this.clearQueue,
         reorderQueue: this.reorderQueue,
         togglePlay: this.togglePlay,
@@ -136,11 +161,13 @@ const AppRoot = {
         skipBy: this.skipBy,
         setPlaybackRate: this.setPlaybackRate,
         cycleLoopMode: this.cycleLoopMode,
+        setSleepTimer: this.setSleepTimer,
         playNext: this.playNext,
         playPrev: this.playPrev,
         setExpanded: this.setExpanded,
         setPlaylistOpen: this.setPlaylistOpen,
         navigateFromPlayer: this.navigateFromPlayer,
+        smartBack: this.smartBack,
         showToast: this.showToast,
       },
     };
@@ -193,6 +220,7 @@ const AppRoot = {
     window.addEventListener("beforeunload", this.flushProgressNow);
   },
   beforeUnmount() {
+    this.clearSleepTimerSilent();
     this._overlayHistory?.destroy();
     this.flushProgressNow();
     this.destroyHeaderObserver();
@@ -200,6 +228,14 @@ const AppRoot = {
     window.removeEventListener("beforeunload", this.flushProgressNow);
   },
   methods: {
+    smartBack() {
+      const backPath = typeof window !== "undefined" ? window.history.state?.back : null;
+      if (typeof backPath === "string" && backPath.length > 0) {
+        this.$router.back();
+      } else {
+        this.$router.push("/");
+      }
+    },
     setAboutOpen(open) {
       if (!open) this.aboutOpen = false;
       return this._overlayHistory.set("about", Boolean(open));
@@ -407,6 +443,7 @@ const AppRoot = {
       }
 
       if (!isSameSrc) {
+        this._retriedAudioEid = null;
         this.pendingSeekSeconds = targetSeek;
         this.player.currentTime = targetSeek || 0;
         this.player.duration = track.duration || 0;
@@ -445,6 +482,25 @@ const AppRoot = {
       }
       saveQueue(this.player.queue, this.player.currentEid);
       this.showToast("已加入播放列表");
+    },
+    enqueueNext(track) {
+      if (!track?.eid) return;
+      if (this.player.currentEid === track.eid) {
+        this.showToast("正在播放该单集");
+        return;
+      }
+      const filtered = this.player.queue.filter((t) => t.eid !== track.eid);
+      const curIdx = filtered.findIndex((t) => t.eid === this.player.currentEid);
+      const insertAt = curIdx >= 0 ? curIdx + 1 : 0;
+      const nextQueue = [...filtered];
+      nextQueue.splice(insertAt, 0, track);
+      this.player.queue = nextQueue;
+      if (!this.player.currentEid) {
+        this.player.currentEid = track.eid;
+        this.restoreCurrentTrackOnBoot();
+      }
+      saveQueue(this.player.queue, this.player.currentEid);
+      this.showToast("已设为下一首播放");
     },
     enqueueMany(tracks) {
       const existing = new Set(this.player.queue.map((t) => t.eid));
@@ -485,7 +541,32 @@ const AppRoot = {
       }
       saveQueue(this.player.queue, this.player.currentEid);
     },
-    clearQueue() {
+    clearFinishedFromQueue() {
+      const before = this.player.queue;
+      const nextQueue = before.filter(
+        (t) => t.eid === this.player.currentEid || !this.player.progressMap[t.eid]?.finished
+      );
+      const removedCount = before.length - nextQueue.length;
+      if (removedCount <= 0) return 0;
+      this.player.queue = nextQueue;
+      saveQueue(this.player.queue, this.player.currentEid);
+      return removedCount;
+    },
+    restoreQueueSnapshot(items, currentEid) {
+      const safeItems = Array.isArray(items) ? [...items] : [];
+      const prevCurrent = this.player.currentEid;
+      const nextCurrent =
+        currentEid && safeItems.some((t) => t.eid === currentEid)
+          ? currentEid
+          : safeItems[0]?.eid || null;
+      this.player.queue = safeItems;
+      this.player.currentEid = nextCurrent;
+      saveQueue(this.player.queue, this.player.currentEid);
+      if (!prevCurrent && nextCurrent) {
+        this.restoreCurrentTrackOnBoot();
+      }
+    },
+    clearQueue({ silentToast = false } = {}) {
       const audio = this.$refs.audioEl;
       if (audio) {
         audio.pause();
@@ -498,7 +579,9 @@ const AppRoot = {
       this.player.duration = 0;
       this.setExpanded(false);
       saveQueue([], null);
-      this.showToast("已清空播放列表");
+      if (!silentToast) {
+        this.showToast("已清空播放列表");
+      }
     },
     reorderQueue(fromIndex, toIndex) {
       if (
@@ -561,7 +644,60 @@ const AppRoot = {
         loopMode: this.player.loopMode,
         theme: this.theme,
       });
+      this.updateMediaSessionPosition();
       this.showToast(`倍速切换为 ${rate}x`);
+    },
+    clearSleepTimerSilent() {
+      if (this._sleepInterval) {
+        clearInterval(this._sleepInterval);
+        this._sleepInterval = null;
+      }
+      const audio = this.$refs.audioEl;
+      if (audio) {
+        try {
+          audio.volume = 1;
+        } catch {}
+      }
+      this.player.sleepMode = "off";
+      this.player.sleepEndsAt = 0;
+      this.player.sleepRemainingSec = 0;
+    },
+    setSleepTimer(option) {
+      this.clearSleepTimerSilent();
+      if (!option || option === "off") {
+        this.showToast("已关闭睡眠定时");
+        return;
+      }
+      if (option === "episode") {
+        this.player.sleepMode = "episode";
+        this.showToast("将在本集播完后自动暂停");
+        return;
+      }
+      const mins = Number(option);
+      if (!Number.isFinite(mins) || mins <= 0) return;
+      const totalSec = Math.round(mins * 60);
+      this.player.sleepMode = "timer";
+      this.player.sleepEndsAt = Date.now() + totalSec * 1000;
+      this.player.sleepRemainingSec = totalSec;
+      this._sleepInterval = setInterval(() => {
+        const rem = Math.max(0, Math.ceil((this.player.sleepEndsAt - Date.now()) / 1000));
+        this.player.sleepRemainingSec = rem;
+        const audio = this.$refs.audioEl;
+        if (rem > 0 && rem <= 3 && audio && !audio.paused) {
+          try {
+            audio.volume = Math.max(0.2, rem / 4);
+          } catch {}
+        }
+        if (rem <= 0) {
+          this.clearSleepTimerSilent();
+          if (audio && !audio.paused) {
+            audio.pause();
+          }
+          this.persistProgress(false, true);
+          this.showToast("睡眠定时已到，已暂停播放");
+        }
+      }, 1000);
+      this.showToast(`睡眠定时已开启：${mins} 分钟`);
     },
     cycleLoopMode() {
       const idx = LOOP_MODES.indexOf(this.player.loopMode);
@@ -615,11 +751,23 @@ const AppRoot = {
         finished,
         updatedAt: now,
       });
+      this.updateMediaSessionPosition();
     },
     flushProgressNow() {
       if (this.player.currentEid && this.player.currentTime > 0) {
         this.persistProgress(false, true);
       }
+    },
+    onAudioPlaying() {
+      this.player.isPlaying = true;
+      this.player.isBuffering = false;
+      this.syncMediaSessionPlaybackState("playing");
+      this.updateMediaSessionPosition();
+    },
+    onAudioPause() {
+      this.player.isPlaying = false;
+      this.syncMediaSessionPlaybackState("paused");
+      this.persistProgress(false, true);
     },
     onAudioLoadedMetadata() {
       const audio = this.$refs.audioEl;
@@ -634,6 +782,7 @@ const AppRoot = {
         this.player.currentTime = audio.currentTime;
         this.pendingSeekSeconds = null;
       }
+      this.updateMediaSessionPosition();
     },
     onAudioTimeUpdate() {
       const audio = this.$refs.audioEl;
@@ -646,6 +795,13 @@ const AppRoot = {
     },
     onAudioEnded() {
       this.player.isPlaying = false;
+      this.syncMediaSessionPlaybackState("paused");
+      if (this.player.sleepMode === "episode") {
+        this.clearSleepTimerSilent();
+        this.persistProgress(true, true);
+        this.showToast("本集已播完，睡眠定时已自动暂停");
+        return;
+      }
       if (this.player.loopMode === "repeat-one") {
         const audio = this.$refs.audioEl;
         if (audio) {
@@ -662,13 +818,71 @@ const AppRoot = {
         this.playTrack(this.player.queue[0]);
       }
     },
-    onAudioError() {
-      if (!this.player.currentEid || !this.$refs.audioEl?.getAttribute("src")) {
+    async onAudioError() {
+      const eid = this.player.currentEid;
+      const audio = this.$refs.audioEl;
+      if (!eid || !audio?.getAttribute("src")) {
         return;
+      }
+      if (this._retriedAudioEid !== eid) {
+        this._retriedAudioEid = eid;
+        const resumePos = this.player.currentTime || 0;
+        const wasPlaying = this.player.isPlaying || this.player.isBuffering;
+        try {
+          const detail = await fetchEpisodeDetail(eid, { forceRefresh: true });
+          const freshUrl = detail?.episode?.enclosureUrl;
+          if (freshUrl && this.player.currentEid === eid) {
+            const idx = this.player.queue.findIndex((t) => t.eid === eid);
+            if (idx !== -1) {
+              const nextQueue = [...this.player.queue];
+              nextQueue[idx] = { ...nextQueue[idx], enclosureUrl: freshUrl };
+              this.player.queue = nextQueue;
+              saveQueue(this.player.queue, this.player.currentEid);
+            }
+            this.pendingSeekSeconds = resumePos > 0 ? resumePos : null;
+            audio.src = freshUrl;
+            audio.load();
+            if (wasPlaying) {
+              await audio.play();
+            }
+            return;
+          }
+        } catch {
+          // Fall through to toast
+        }
       }
       this.player.isPlaying = false;
       this.player.isBuffering = false;
       this.showToast("音频加载失败，请检查网络或前往小宇宙官网试听");
+    },
+    syncMediaSessionPlaybackState(state) {
+      if (typeof navigator === "undefined" || !("mediaSession" in navigator)) return;
+      try {
+        navigator.mediaSession.playbackState = state;
+      } catch {}
+    },
+    updateMediaSessionPosition() {
+      if (typeof navigator === "undefined" || !("mediaSession" in navigator)) return;
+      const ms = navigator.mediaSession;
+      if (typeof ms.setPositionState !== "function") return;
+      const audio = this.$refs.audioEl;
+      const dur =
+        Number.isFinite(audio?.duration) && audio.duration > 0
+          ? audio.duration
+          : Number(this.player.duration) || 0;
+      if (!(dur > 0)) return;
+      const rawPos = Number.isFinite(audio?.currentTime)
+        ? audio.currentTime
+        : Number(this.player.currentTime) || 0;
+      const pos = Math.max(0, Math.min(dur, rawPos));
+      const rate = Number(this.player.playbackRate) || 1.0;
+      try {
+        ms.setPositionState({
+          duration: dur,
+          playbackRate: rate,
+          position: pos,
+        });
+      } catch {}
     },
     updateMediaSessionMetadata(track) {
       if (typeof navigator === "undefined" || !("mediaSession" in navigator) || !window.MediaMetadata) {
@@ -713,6 +927,16 @@ const AppRoot = {
             </button>
 
             <div class="header-actions">
+              <router-link
+                v-if="!isBoardRoute"
+                to="/"
+                class="icon-btn"
+                title="返回热榜首页"
+                aria-label="返回热榜首页"
+              >
+                <app-icon name="home" :size="16" />
+                <span>热榜</span>
+              </router-link>
               <button v-if="isBoardRoute" type="button" class="icon-btn mobile-search-toggle" aria-label="搜索榜单" :aria-expanded="searchOpen || !!searchQuery" @click="searchOpen = !searchOpen; searchOpen && $nextTick(() => $refs.searchInput.focus())"><app-icon name="search" :size="17" /></button>
               <button
                 v-if="deferredInstallPrompt"
@@ -802,8 +1026,8 @@ const AppRoot = {
         ref="audioEl"
         preload="metadata"
         @loadedmetadata="onAudioLoadedMetadata"
-        @playing="player.isPlaying = true; player.isBuffering = false"
-        @pause="player.isPlaying = false; persistProgress(false, true)"
+        @playing="onAudioPlaying"
+        @pause="onAudioPause"
         @waiting="player.isBuffering = true"
         @canplay="player.isBuffering = false"
         @seeked="persistProgress(false, true)"

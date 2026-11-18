@@ -9,10 +9,18 @@ export default {
     return {
       sortableInstance: null,
       expandedActions: null,
-      removedTrack: null,
-      removedIndex: 0,
+      undoState: null,
       undoTimer: null,
     };
+  },
+  computed: {
+    finishedCount() {
+      return this.player.queue.filter(
+        (item) =>
+          item.eid !== this.player.currentEid &&
+          Boolean(this.player.progressMap[item.eid]?.finished)
+      ).length;
+    },
   },
   watch: {
     "player.queue.length"() {
@@ -22,6 +30,7 @@ export default {
       if (isOpen) {
         this.$nextTick(() => this.initSortable());
       } else {
+        this.expandedActions = null;
         this.destroySortable();
       }
     },
@@ -32,21 +41,58 @@ export default {
   },
   methods: {
     formatDurationSeconds,
-    removeItem(item, index) {
-      this.removedTrack = item;
-      this.removedIndex = index;
+    saveUndoSnapshot(message) {
+      this.undoState = {
+        message,
+        items: [...this.player.queue],
+        currentEid: this.player.currentEid,
+      };
       clearTimeout(this.undoTimer);
+      this.undoTimer = setTimeout(() => {
+        this.undoState = null;
+      }, 5000);
+    },
+    removeItem(item) {
+      this.saveUndoSnapshot("已移出播放列表");
+      if (this.expandedActions === item.eid) {
+        this.expandedActions = null;
+      }
       this.playerActions.removeFromQueue(item.eid);
-      this.undoTimer = setTimeout(() => { this.removedTrack = null; }, 5000);
+    },
+    handleClearFinished() {
+      if (this.finishedCount <= 0) return;
+      const snapshot = {
+        items: [...this.player.queue],
+        currentEid: this.player.currentEid,
+      };
+      const removed = this.playerActions.clearFinishedFromQueue();
+      if (removed > 0) {
+        this.undoState = {
+          message: `已移除 ${removed} 集已播完节目`,
+          ...snapshot,
+        };
+        clearTimeout(this.undoTimer);
+        this.undoTimer = setTimeout(() => {
+          this.undoState = null;
+        }, 5000);
+      }
+    },
+    handleClearAll() {
+      if (this.player.queue.length === 0) return;
+      this.saveUndoSnapshot(`已清空 ${this.player.queue.length} 集播放列表`);
+      this.expandedActions = null;
+      this.playerActions.clearQueue({ silentToast: true });
     },
     undoRemove() {
-      const item = this.removedTrack;
-      if (!item) return;
-      this.playerActions.enqueueTrack(item);
-      const index = this.player.queue.findIndex(t => t.eid === item.eid);
-      this.playerActions.reorderQueue(index, Math.min(this.removedIndex, this.player.queue.length - 1));
+      if (!this.undoState) return;
+      const { items, currentEid } = this.undoState;
+      this.playerActions.restoreQueueSnapshot(items, currentEid);
       clearTimeout(this.undoTimer);
-      this.removedTrack = null;
+      this.undoState = null;
+    },
+    playNextItem(item) {
+      this.playerActions.enqueueNext(item);
+      this.expandedActions = null;
     },
     async initSortable() {
       this.destroySortable();
@@ -103,16 +149,25 @@ export default {
       <div class="drawer-panel">
         <div class="drawer-grabber" aria-hidden="true"></div>
         <div class="drawer-header">
-          <div style="display:flex;align-items:center;gap:8px;">
+          <div style="display:flex;align-items:center;gap:8px;min-width:0;">
             <app-icon name="list-music" :size="18" />
-            <strong>播放列表 ({{ player.queue.length }})</strong>
+            <strong style="white-space:nowrap;">播放列表 ({{ player.queue.length }})</strong>
           </div>
-          <div style="display:flex;align-items:center;gap:6px;">
+          <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;">
+            <button
+              v-if="finishedCount > 0"
+              type="button"
+              class="btn sm"
+              @click="handleClearFinished"
+              title="移除列表中已播完的单集"
+            >
+              <span>清已播 ({{ finishedCount }})</span>
+            </button>
             <button
               v-if="player.queue.length > 0"
               type="button"
               class="btn sm"
-              @click="playerActions.clearQueue()"
+              @click="handleClearAll"
             >
               <app-icon name="trash-2" :size="14" />
               <span>清空</span>
@@ -156,32 +211,51 @@ export default {
             </button>
 
             <div class="queue-item-actions">
-              <button type="button" class="queue-icon-btn" :aria-expanded="expandedActions === item.eid" :aria-label="'调整顺序：' + item.title" @click="expandedActions = expandedActions === item.eid ? null : item.eid"><app-icon name="ellipsis" :size="18" /></button>
+              <button
+                type="button"
+                class="queue-icon-btn"
+                :aria-expanded="expandedActions === item.eid"
+                :aria-label="'调整顺序：' + item.title"
+                @click="expandedActions = expandedActions === item.eid ? null : item.eid"
+              ><app-icon name="ellipsis" :size="18" /></button>
               <div v-if="expandedActions === item.eid" class="queue-order-menu">
-              <button
-                type="button"
-                class="queue-icon-btn"
-                :disabled="idx === 0"
-                @click="playerActions.reorderQueue(idx, idx - 1)"
-                title="上移"
-              >
-                <app-icon name="arrow-up" :size="14" />
-              </button>
-              <button
-                type="button"
-                class="queue-icon-btn"
-                :disabled="idx === player.queue.length - 1"
-                @click="playerActions.reorderQueue(idx, idx + 1)"
-                title="下移"
-              >
-                <app-icon name="arrow-down" :size="14" />
-              </button>
-              <button type="button" class="queue-icon-btn" :disabled="idx === 0" @click="playerActions.reorderQueue(idx, 0)" title="置顶"><app-icon name="arrow-up-to-line" :size="14" /></button>
+                <button
+                  v-if="item.eid !== player.currentEid"
+                  type="button"
+                  class="queue-menu-text-btn"
+                  @click="playNextItem(item)"
+                  title="移到当前播放单集之后"
+                >下一首</button>
+                <button
+                  type="button"
+                  class="queue-icon-btn"
+                  :disabled="idx === 0"
+                  @click="playerActions.reorderQueue(idx, idx - 1)"
+                  title="上移"
+                >
+                  <app-icon name="arrow-up" :size="14" />
+                </button>
+                <button
+                  type="button"
+                  class="queue-icon-btn"
+                  :disabled="idx === player.queue.length - 1"
+                  @click="playerActions.reorderQueue(idx, idx + 1)"
+                  title="下移"
+                >
+                  <app-icon name="arrow-down" :size="14" />
+                </button>
+                <button
+                  type="button"
+                  class="queue-icon-btn"
+                  :disabled="idx === 0"
+                  @click="playerActions.reorderQueue(idx, 0)"
+                  title="置顶"
+                ><app-icon name="arrow-up-to-line" :size="14" /></button>
               </div>
               <button
                 type="button"
                 class="queue-icon-btn"
-                @click="removeItem(item, idx)"
+                @click="removeItem(item)"
                 title="移除"
               >
                 <app-icon name="x" :size="14" />
@@ -189,7 +263,10 @@ export default {
             </div>
           </div>
         </div>
-        <div v-if="removedTrack" class="queue-undo" role="status">已移出播放列表 <button type="button" class="btn sm" @click="undoRemove">撤销</button></div>
+        <div v-if="undoState" class="queue-undo" role="status">
+          <span>{{ undoState.message }}</span>
+          <button type="button" class="btn sm" @click="undoRemove">撤销</button>
+        </div>
       </div>
     </div></transition>
   `,

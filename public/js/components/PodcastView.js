@@ -28,6 +28,10 @@ export default {
     pid() {
       return this.$route.params.pid;
     },
+    hasHistoryBack() {
+      void this.$route.fullPath;
+      return Boolean(typeof window !== "undefined" && window.history.state?.back);
+    },
   },
   watch: {
     pid: {
@@ -117,9 +121,9 @@ export default {
   template: `
     <div>
       <div class="back-bar">
-        <button type="button" class="btn sm" @click="$router.back()">
-          <app-icon name="arrow-left" :size="15" />
-          <span>返回</span>
+        <button type="button" class="btn sm" @click="playerActions.smartBack()">
+          <app-icon :name="hasHistoryBack ? 'arrow-left' : 'home'" :size="15" />
+          <span>{{ hasHistoryBack ? '返回' : '逛热榜首页' }}</span>
         </button>
         <a
           v-if="sourceUrl"
@@ -134,7 +138,7 @@ export default {
       </div>
 
       <div v-if="loading" class="skeleton-list" aria-label="加载中">
-        <div v-for="n in 4" :key="n" class="skeleton-card"></div>
+        <div v-for="n in 4" :key="n" class="skeleton-card"><span class="skeleton-cover"></span><span class="skeleton-copy"><i></i><i></i></span></div>
       </div>
 
       <div v-else-if="errorMsg" class="state-box error">

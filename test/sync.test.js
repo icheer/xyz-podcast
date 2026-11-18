@@ -108,6 +108,15 @@ function createInMemoryMockDb() {
         }
         return null;
       },
+      async all() {
+        if (sql.includes("FROM episodes_rank") && sql.includes("GROUP BY board, primary_genre")) {
+          return { results: [{ board: "episodes", genre: "科技", count: 2 }] };
+        }
+        if (sql.includes("FROM podcasts_rank") && sql.includes("GROUP BY board, primary_genre")) {
+          return { results: [{ board: "podcasts", genre: "商业", count: 3 }] };
+        }
+        return { results: [] };
+      },
       async run() {
         if (sql.startsWith("INSERT INTO sync_runs")) {
           const [run_id, slot, current_board, locked_until, started_at] = bound;
@@ -203,6 +212,13 @@ function createInMemoryMockDb() {
           for (const [k, v] of state.boardMeta.entries()) {
             if (!keep.has(v.syncVersion)) state.boardMeta.delete(k);
           }
+        } else if (sql.includes("DELETE FROM app_state WHERE key LIKE 'genres:%'")) {
+          const keep = new Set(bound);
+          for (const k of state.appState.keys()) {
+            if (k.startsWith("genres:") && !keep.has(k)) {
+              state.appState.delete(k);
+            }
+          }
         }
         return { success: true };
       },
@@ -227,6 +243,7 @@ test("runSyncBatch executes multi-batch relay across all 4 boards and activates 
   const db = createInMemoryMockDb();
   // Seed an older version that should stay if it was prevActive, and an obsolete version that gets cleaned
   db.state.appState.set("active_sync_version", { value: "20261116T12", updated_at: "2026-11-16T12:06:00Z" });
+  db.state.appState.set("genres:old-v0", { key: "genres:old-v0", value: "{}", updated_at: "2026-11-15T00:00:00Z" });
   db.state.episodes.set("old-v0:episodes:e0", { syncVersion: "old-v0" });
   db.state.episodes.set("20261116T12:episodes:ePrev", { syncVersion: "20261116T12" });
 
@@ -300,6 +317,9 @@ test("runSyncBatch executes multi-batch relay across all 4 boards and activates 
   assert.equal(r3.done, true);
   assert.equal(r3.batchPages, 1);
   assert.equal(db.state.appState.get("active_sync_version").value, "20261117T00");
+  assert.equal(db.state.appState.get("prev_sync_version").value, "20261116T12");
+  assert.equal(Boolean(db.state.appState.get("genres:20261117T00")), true);
+  assert.equal(db.state.appState.has("genres:old-v0"), false);
   assert.equal(db.state.episodes.has("old-v0:episodes:e0"), false);
   assert.equal(db.state.episodes.has("20261116T12:episodes:ePrev"), true);
 

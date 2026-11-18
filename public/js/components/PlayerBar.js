@@ -8,6 +8,15 @@ const LOOP_LABELS = {
   "repeat-one": "单曲循环",
 };
 
+const SLEEP_OPTIONS = [
+  { key: "off", label: "关闭" },
+  { key: "episode", label: "播完本集" },
+  { key: 15, label: "15分" },
+  { key: 30, label: "30分" },
+  { key: 45, label: "45分" },
+  { key: 60, label: "60分" },
+];
+
 export default {
   name: "PlayerBar",
   components: { AppIcon },
@@ -17,6 +26,7 @@ export default {
       isScrubbing: false,
       scrubValue: 0,
       showRatePicker: false,
+      showSleepPicker: false,
     };
   },
   computed: {
@@ -45,9 +55,35 @@ export default {
     rates() {
       return PLAYBACK_RATES;
     },
+    sleepOptions() {
+      return SLEEP_OPTIONS;
+    },
+    sleepActive() {
+      return this.player.sleepMode && this.player.sleepMode !== "off";
+    },
+    sleepLabel() {
+      if (this.player.sleepMode === "episode") return "播完停";
+      if (this.player.sleepMode === "timer" && this.player.sleepRemainingSec > 0) {
+        return formatDurationSeconds(this.player.sleepRemainingSec);
+      }
+      return "定时";
+    },
   },
   methods: {
     formatDurationSeconds,
+    toggleRatePicker() {
+      this.showRatePicker = !this.showRatePicker;
+      if (this.showRatePicker) this.showSleepPicker = false;
+    },
+    toggleSleepPicker() {
+      this.showSleepPicker = !this.showSleepPicker;
+      if (this.showSleepPicker) this.showRatePicker = false;
+    },
+    isSleepOptionSelected(optKey) {
+      if (optKey === "off") return !this.sleepActive;
+      if (optKey === "episode") return this.player.sleepMode === "episode";
+      return false;
+    },
     onScrubInput(evt) {
       this.isScrubbing = true;
       this.scrubValue = Number(evt.target.value) || 0;
@@ -212,7 +248,7 @@ export default {
             </button>
           </div>
 
-          <div v-if="showRatePicker" class="speed-pills">
+          <div v-if="showRatePicker" class="speed-pills" role="group" aria-label="播放倍速">
             <button
               v-for="r in rates"
               :key="r"
@@ -223,8 +259,19 @@ export default {
             >{{ r }}x</button>
           </div>
 
+          <div v-if="showSleepPicker" class="speed-pills" role="group" aria-label="睡眠定时">
+            <button
+              v-for="opt in sleepOptions"
+              :key="String(opt.key)"
+              type="button"
+              class="speed-pill tabular"
+              :class="{ active: isSleepOptionSelected(opt.key) }"
+              @click="playerActions.setSleepTimer(opt.key); showSleepPicker = false"
+            >{{ opt.label }}</button>
+          </div>
+
           <div class="utility-row">
-            <button type="button" class="util-btn" @click="showRatePicker = !showRatePicker">
+            <button type="button" class="util-btn" @click="toggleRatePicker">
               <strong class="tabular" style="font-size: 14px;">{{ player.playbackRate }}x</strong>
               <span>倍速</span>
             </button>
@@ -232,6 +279,16 @@ export default {
             <button type="button" class="util-btn" @click="playerActions.cycleLoopMode()">
               <app-icon :name="loopIcon" :size="18" />
               <span>{{ loopLabel }}</span>
+            </button>
+
+            <button
+              type="button"
+              class="util-btn"
+              :class="{ 'is-active': sleepActive }"
+              @click="toggleSleepPicker"
+            >
+              <app-icon name="timer" :size="18" />
+              <span class="tabular">{{ sleepLabel }}</span>
             </button>
 
             <button type="button" class="util-btn" @click="playerActions.setPlaylistOpen(true)">

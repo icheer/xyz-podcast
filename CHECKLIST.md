@@ -165,6 +165,19 @@
 
 ## 前端设计审查（2026-11-17）
 
+- [/] **FEAT-P0-P1**（2026-11-18）一次性完成 P0 稳定性/缓存保护与 P1 核心收听/热榜发现升级
+  - **P0 完成内容**：
+    - 外链冷启动返回兜底与 404 路由：`app.js` 新增 `smartBack()`、详情页顶栏「热榜」按钮与 `/:pathMatch(.*)*` 404 视图；`EpisodeView.js` / `PodcastView.js` 无站内历史时显示「逛热榜首页」并跳转 `/`，同步补齐详情页结构化骨架节点。
+    - Service Worker 弱网安全回退：`public/sw.js` 升至 `v3`，仅在 `req.mode === "navigate"` 时回退 `"/"`，静态脚本/样式使用 `ignoreSearch: true` 缓存匹配，杜绝 ES Module 收到 HTML MIME 报错。
+    - D1 查询瘦身与边缘缓存：`schema.js` / `sync.js` / `boards.js` 将分类聚合缓存于 `app_state` (`genres:<syncVersion>`) 并在旧版本清理时回收；`/api/boards/meta` 与 `/api/boards/:board` 增加 `Cache-Control` 响应头及按 `syncVersion` 隔离的 Worker `caches.default` 边缘缓存。
+    - 深色防闪白与同步超时：`index.html` 内联脚本在首屏渲染前同步 `data-theme` 与 `theme-color`（未手动设置时跟随系统 `prefers-color-scheme`）；`sync.js` `fetchBoardPage` 增加 12s `AbortController` 超时；清空废弃 `src/handlers/download.js` 代码。
+  - **P1 完成内容**：
+    - 热评时间戳一键空降：`utils.js` 新增纯函数 `parseTextWithTimestamps(text, maxSeconds)`（`test/frontend.test.js` 单测覆盖），`EpisodeView.js` 在热评正文与二级回复中无 `v-html` 渲染可点击跳播按钮。
+    - 睡眠定时器：`app.js` + `PlayerBar.js` 新增 `关闭 / 播完本集 / 15分 / 30分 / 45分 / 60分` 定时功能，支持实时倒计时显示与结束前 3 秒音量渐弱淡出。
+    - 榜单升降趋势、单集直跳频道与已听标记：`boards.js` 通过索引点查关联上一期 `prev_rank` 与所属播客 `podcast_pid`（`test/schema.test.js` 与 `test/sync.test.js` 单测覆盖）；`RankBoard.js` 移动端（保持 18px 排名列宽不破坏 28px 左对齐）与桌面端展示 `↑ / ↓ / 新(NEW)`、可点击播客名跳转 `/podcast/:pid` 及 `已听 XX% / 已播完` 标记。
+    - 锁屏进度同步与队列增强：`app.js` 接入 `navigator.mediaSession.setPositionState` 与音频报错自动强制刷新 `enclosureUrl` 重试；`PlaylistDrawer.js` 与 `EpisodeView.js` 新增「下一首播放」、「清已播」，并为单删、清已播、清空队列统一提供 5 秒撤销。
+  - **当前验证状态**：代码与新增单测均已落盘复核；因本会话 `run_command` 绑定于已删除目录 `xyz-podcast/xyz-podcast` 无法运行终端，待在根目录执行 `rm -f src/handlers/download.js && npm test` 与浏览器实测后改为 `[x]`。
+
 - [x] **PERF-03** 将微信字号脚本内联到 CSS 之前，按需库加载器合入已有 `utils.js`，减少首屏请求。
   - 本地 Wrangler + Chromium，390px 冷缓存首页 JS 请求 18 → 16（同源 15 → 13，CDN 3）。5 个固定地址均直接返回 HTTP 200。真实 DOMPurify / SortableJS 验证简介净化、时间戳和队列初始化，微信桥接模拟通过。单测 18/18。
 
@@ -340,3 +353,4 @@
 | 2026-11-18 | PERF-01 | 固定入口页 5 个 unpkg 脚本版本 | 发布记录、文件路径、HTML 和 4 个测试文件检查通过 | CDN 请求待联网复核 |
 | 2026-11-18 | PERF-02 | 首屏脚本 defer，简介净化与队列拖拽按需加载 | 4 个测试文件及加载顺序、延迟、失败和队列状态模拟通过 | CDN 请求待联网复核 |
 | 2026-11-18 | PERF-03 | 内联微信首屏初始化，合并按需库加载器 | Chromium 首页 JS 18 → 16，CDN 直接 200，主要功能及单测 18/18 通过 | 本地验证 |
+| 2026-11-18 | FEAT-P0-P1 | 完成 P0（深链返回/404、SW修复、D1分类缓存+Edge Cache、深色防闪白、同步超时）与 P1（热评时间戳跳播、睡眠定时、榜单升降/新上榜+频道直跳+已听标记、锁屏进度同步、队列下一首/清已播/清空撤销、音频失效重刷）及新增单测 | 本会话绑定旧 cwd 无法执行命令，代码与测试已完整静态复核 | 在 `/home/projects/_ai-apps/xyz-podcast` 执行 `rm -f src/handlers/download.js && npm test`、本地实测后部署 |

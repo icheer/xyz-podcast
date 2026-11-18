@@ -177,6 +177,19 @@ export default {
     isInQueue(eid) {
       return Boolean(eid && this.player.queue.some((t) => t.eid === eid));
     },
+    isEpisodeFinished(eid) {
+      return Boolean(eid && this.player.progressMap[eid]?.finished);
+    },
+    episodeProgressText(item) {
+      if (!item?.eid) return "";
+      const p = this.player.progressMap[item.eid];
+      if (!p) return "";
+      if (p.finished) return "已播完";
+      const dur = Number(p.duration) || (Number(item.duration) > 0 ? Number(item.duration) * 60 : 0);
+      if (dur <= 0 || !(p.currentTime > 5)) return "";
+      const pct = Math.min(99, Math.max(1, Math.round((p.currentTime / dur) * 100)));
+      return `已听 ${pct}%`;
+    },
     activeHeightCache() {
       return this.isDesktop ? this._desktopHeights : this._mobileHeights;
     },
@@ -399,6 +412,11 @@ export default {
       );
       this.observer.observe(el);
     },
+    openPodcastByPid(pid) {
+      if (!pid) return;
+      this.savedScrollY = window.scrollY || 0;
+      this.$router.push(`/podcast/${pid}`);
+    },
     openItem(item) {
       this.savedScrollY = window.scrollY || 0;
       if (this.isEpisodeBoard) {
@@ -518,16 +536,33 @@ export default {
           @click="openItem(entry.item)"
         >
           <div class="card-main-row">
-            <div class="rank-num tabular" :class="rankBadgeClass(entry.item.rank)">{{ entry.item.rank }}</div>
+            <div class="rank-col tabular">
+              <div class="rank-num" :class="rankBadgeClass(entry.item.rank)">{{ entry.item.rank }}</div>
+              <span v-if="entry.item.isNew" class="rank-trend is-new" title="新上榜">新</span>
+              <span v-else-if="entry.item.rankDelta > 0" class="rank-trend is-up" :title="'较上期上升 ' + entry.item.rankDelta + ' 位'">↑{{ entry.item.rankDelta }}</span>
+              <span v-else-if="entry.item.rankDelta < 0" class="rank-trend is-down" :title="'较上期下降 ' + Math.abs(entry.item.rankDelta) + ' 位'">↓{{ Math.abs(entry.item.rankDelta) }}</span>
+            </div>
             <img v-cover class="cover-thumb" :src="entry.item.logoURL" :alt="entry.item.title || entry.item.name" loading="lazy" />
 
             <div class="card-head-text">
               <div class="card-title">{{ isEpisodeBoard ? entry.item.title : entry.item.name }}</div>
               <div class="card-sub-row">
-                <span class="card-subtitle">
+                <button
+                  v-if="isEpisodeBoard && entry.item.podcastPid"
+                  type="button"
+                  class="card-subtitle card-pod-link"
+                  @click.stop="openPodcastByPid(entry.item.podcastPid)"
+                  :title="'查看播客频道：' + entry.item.podcastName"
+                >{{ entry.item.podcastName }}</button>
+                <span v-else class="card-subtitle">
                   {{ isEpisodeBoard ? entry.item.podcastName : (entry.item.authorsText || '-') }}
                 </span>
                 <span v-if="entry.item.primaryGenreName" class="genre-tag">{{ entry.item.primaryGenreName }}</span>
+                <span
+                  v-if="isEpisodeBoard && episodeProgressText(entry.item)"
+                  class="ep-listen-tag tabular"
+                  :class="{ done: isEpisodeFinished(entry.item.eid) }"
+                >{{ episodeProgressText(entry.item) }}</span>
               </div>
             </div>
           </div>
@@ -624,14 +659,33 @@ export default {
               @click="openItem(entry.item)"
             >
               <td>
-                <span class="rank-num" :class="rankBadgeClass(entry.item.rank)">{{ entry.item.rank }}</span>
+                <div class="table-rank-cell tabular">
+                  <span class="rank-num" :class="rankBadgeClass(entry.item.rank)">{{ entry.item.rank }}</span>
+                  <span v-if="entry.item.isNew" class="rank-trend is-new">NEW</span>
+                  <span v-else-if="entry.item.rankDelta > 0" class="rank-trend is-up">↑{{ entry.item.rankDelta }}</span>
+                  <span v-else-if="entry.item.rankDelta < 0" class="rank-trend is-down">↓{{ Math.abs(entry.item.rankDelta) }}</span>
+                </div>
               </td>
               <td class="title-col">
                 <div class="table-item-cell">
                   <img v-cover class="table-cover" :src="entry.item.logoURL" :alt="entry.item.title" loading="lazy" />
                   <div style="min-width:0">
                     <div class="table-title">{{ entry.item.title }}</div>
-                    <div class="table-sub">{{ entry.item.podcastName }}</div>
+                    <div class="table-sub-row">
+                      <button
+                        v-if="entry.item.podcastPid"
+                        type="button"
+                        class="table-sub table-pod-link"
+                        @click.stop="openPodcastByPid(entry.item.podcastPid)"
+                        :title="'查看播客频道：' + entry.item.podcastName"
+                      >{{ entry.item.podcastName }}</button>
+                      <span v-else class="table-sub">{{ entry.item.podcastName }}</span>
+                      <span
+                        v-if="episodeProgressText(entry.item)"
+                        class="ep-listen-tag tabular"
+                        :class="{ done: isEpisodeFinished(entry.item.eid) }"
+                      >{{ episodeProgressText(entry.item) }}</span>
+                    </div>
                   </div>
                 </div>
               </td>
@@ -708,7 +762,12 @@ export default {
               @click="openItem(entry.item)"
             >
               <td>
-                <span class="rank-num" :class="rankBadgeClass(entry.item.rank)">{{ entry.item.rank }}</span>
+                <div class="table-rank-cell tabular">
+                  <span class="rank-num" :class="rankBadgeClass(entry.item.rank)">{{ entry.item.rank }}</span>
+                  <span v-if="entry.item.isNew" class="rank-trend is-new">NEW</span>
+                  <span v-else-if="entry.item.rankDelta > 0" class="rank-trend is-up">↑{{ entry.item.rankDelta }}</span>
+                  <span v-else-if="entry.item.rankDelta < 0" class="rank-trend is-down">↓{{ Math.abs(entry.item.rankDelta) }}</span>
+                </div>
               </td>
               <td class="title-col">
                 <div class="table-item-cell">

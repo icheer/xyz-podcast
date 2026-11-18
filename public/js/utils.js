@@ -78,6 +78,39 @@ export function parseTimestampToSeconds(ts) {
 }
 
 /**
+ * Split plain text (such as comments and replies) into safe text/timestamp tokens
+ * without using HTML injection, optionally ignoring timestamps beyond maxSeconds.
+ */
+export function parseTextWithTimestamps(text, maxSeconds = 0) {
+  const raw = String(text ?? "");
+  if (!raw) return [];
+
+  const maxDur = Number(maxSeconds) > 0 ? Number(maxSeconds) : 0;
+  const regex = /(?<![\d:])((?:\d{1,2}:)?\d{1,2}:\d{2})(?!\d)/g;
+  const segments = [];
+  let lastIndex = 0;
+
+  for (const match of raw.matchAll(regex)) {
+    const token = match[1];
+    const start = match.index ?? 0;
+    const secs = parseTimestampToSeconds(token);
+    if (secs === null || (maxDur > 0 && secs > maxDur)) {
+      continue;
+    }
+    if (start > lastIndex) {
+      segments.push({ type: "text", text: raw.slice(lastIndex, start) });
+    }
+    segments.push({ type: "ts", text: token, seconds: secs });
+    lastIndex = start + token.length;
+  }
+
+  if (lastIndex < raw.length) {
+    segments.push({ type: "text", text: raw.slice(lastIndex) });
+  }
+  return segments;
+}
+
+/**
  * Replace timestamps in plain text segments (never touching HTML tags or anchor contents)
  * with clickable jump buttons.
  */
