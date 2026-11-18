@@ -108,15 +108,16 @@ test("storage queue and prefs persist and validate defaults", () => {
   });
 });
 
-test("legacy playback speeds migrate from saved preferences and backups", () => {
+test("unsupported playback speeds fall back in saved preferences and backups", () => {
   const storage = createMemoryStorage();
   storage.setItem("xyzp_v1_prefs", '{"playbackRate":0.75}');
-  assert.equal(loadPrefs(storage).playbackRate, 0.9);
+  assert.equal(loadPrefs(storage).playbackRate, 1);
 
+  savePrefs({ playbackRate: 1.1 }, storage);
   const backup = exportUserDataObject(storage);
   backup.prefs.playbackRate = 1.25;
   parseAndMergeBackupJson(JSON.stringify(backup), storage);
-  assert.equal(loadPrefs(storage).playbackRate, 1.3);
+  assert.equal(loadPrefs(storage).playbackRate, 1.1);
 
   backup.prefs.playbackRate = 1.2;
   parseAndMergeBackupJson(JSON.stringify(backup), storage);

@@ -12,8 +12,6 @@ export const PLAYBACK_RATES = [0.9, 1, 1.1, 1.2, 1.3, 1.5, 1.75, 2];
 
 function normalizePlaybackRate(value, fallback = 1) {
   const rate = Number(value);
-  if (rate === 0.75) return 0.9;
-  if (rate === 1.25) return 1.3;
   return PLAYBACK_RATES.includes(rate) ? rate : fallback;
 }
 
