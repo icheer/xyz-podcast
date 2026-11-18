@@ -1,4 +1,4 @@
-import { formatDurationSeconds } from "../utils.js";
+import { formatDurationSeconds, loadSortable } from "../utils.js";
 import AppIcon from "./AppIcon.js";
 
 export default {
@@ -48,11 +48,12 @@ export default {
       clearTimeout(this.undoTimer);
       this.removedTrack = null;
     },
-    initSortable() {
+    async initSortable() {
       this.destroySortable();
       const el = this.$refs.queueList;
-      const Sortable = typeof window !== "undefined" ? window.Sortable : null;
-      if (!el || !Sortable) return;
+      if (!el || !this.player.playlistOpen) return;
+      const Sortable = await loadSortable().catch(() => null);
+      if (!Sortable || !this.player.playlistOpen || el !== this.$refs.queueList || this.sortableInstance) return;
 
       this.sortableInstance = Sortable.create(el, {
         handle: ".drag-handle",
@@ -139,7 +140,7 @@ export default {
             class="queue-item"
             :class="{ active: item.eid === player.currentEid }"
           >
-            <span class="drag-handle" title="拖拽调整顺序">
+            <span class="drag-handle" :style="{ visibility: sortableInstance ? 'visible' : 'hidden' }" title="拖拽调整顺序">
               <app-icon name="grip-vertical" :size="16" />
             </span>
 

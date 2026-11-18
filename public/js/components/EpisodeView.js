@@ -4,6 +4,7 @@ import {
   formatCount,
   formatDateTime,
   formatDurationSeconds,
+  loadDOMPurify,
   renderShownotesHtml,
 } from "../utils.js";
 import AppIcon from "./AppIcon.js";
@@ -19,6 +20,7 @@ export default {
       episode: null,
       comments: [],
       expandedReplies: {},
+      shownotesHtml: null,
       shownotesExpanded: false,
       shownotesCanCollapse: false,
       sourceUrl: "",
@@ -49,10 +51,8 @@ export default {
       }
       return this.resumeSeconds;
     },
-    shownotesHtml() {
-      return renderShownotesHtml(this.episode?.shownotes || "");
-    },
     hasShownotesTimestamps() {
+      if (!this.shownotesHtml) return false;
       const template = document.createElement("template");
       template.innerHTML = this.shownotesHtml;
       return Boolean(template.content.querySelector("button.ts-jump-btn[data-seconds]"));
@@ -71,6 +71,7 @@ export default {
     },
   },
   beforeUnmount() {
+    this._episodeRequest = null;
     this._shownotesObserver?.disconnect();
   },
   methods: {
@@ -103,21 +104,34 @@ export default {
       if (!this.eid) return;
       this.loading = true;
       this._shownotesObserver?.disconnect();
+      this.shownotesHtml = null;
       this.shownotesExpanded = false;
       this.shownotesCanCollapse = false;
       this.errorMsg = "";
+      const request = fetchEpisodeDetail(this.eid);
+      this._episodeRequest = request;
+      const purifyReady = loadDOMPurify().catch(() => null);
       try {
-        const res = await fetchEpisodeDetail(this.eid);
+        const res = await request;
+        if (this._episodeRequest !== request) return;
         this.episode = res.episode;
         this.comments = res.comments || [];
         this.sourceUrl = res.sourceUrl || `https://www.xiaoyuzhoufm.com/episode/${this.eid}`;
         this.limitReason = res.limitReason || "";
       } catch (err) {
+        if (this._episodeRequest !== request) return;
         this.errorMsg = err?.message || "加载单集详情失败";
-      } finally {
         this.loading = false;
-        this.$nextTick(this.observeShownotes);
+        return;
       }
+
+      this.loading = false;
+      const rawHtml = this.episode?.shownotes;
+      if (!rawHtml) return;
+      const html = await purifyReady.then(purify => renderShownotesHtml(rawHtml, purify)).catch(() => "");
+      if (this._episodeRequest !== request) return;
+      this.shownotesHtml = html;
+      this.$nextTick(this.observeShownotes);
     },
     buildTrack() {
       const ep = this.episode;
@@ -276,7 +290,7 @@ export default {
               <app-icon :name="shownotesExpanded ? 'chevron-up' : 'chevron-down'" :size="16" />
             </button>
           </template>
-          <p v-else style="color: var(--text-muted);">暂无节目简介</p>
+          <p v-else style="color: var(--text-muted);">{{ !episode.shownotes ? '暂无节目简介' : shownotesHtml === null ? '正在加载节目简介…' : '节目简介暂不可用' }}</p>
         </section>
 
         <section class="section-card reading-section">

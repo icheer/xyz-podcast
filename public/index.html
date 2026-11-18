@@ -15,16 +15,47 @@
   <link rel="apple-touch-icon" sizes="256x256" href="/icon.png" />
   <link rel="manifest" href="/site.webmanifest" />
   <style>[v-cloak] { display: none; }</style>
-  <script src="/js/wechatFont.js?v=27"></script>
+  <script>
+    // Run before the app and CDN scripts so WeChat's text scaling is reset early.
+    (() => {
+      if (!/MicroMessenger/i.test(navigator.userAgent)) return;
+      document.documentElement.setAttribute("data-wechat", "true");
+      let subscribedBridge;
+
+      function resetFontSize() {
+        const bridge = window.WeixinJSBridge;
+        if (typeof bridge?.invoke !== "function") return;
+        try {
+          bridge.invoke("setFontSizeCallback", { fontSize: 0 }, () => {});
+        } catch {
+          // Some clients do not expose this native API; CSS still fixes text inflation.
+        }
+      }
+
+      function onBridgeReady() {
+        resetFontSize();
+        const bridge = window.WeixinJSBridge;
+        if (typeof bridge?.on !== "function" || bridge === subscribedBridge) return;
+        try {
+          bridge.on("menu:setfont", resetFontSize);
+          subscribedBridge = bridge;
+        } catch {
+          // Keep the page usable when the host does not support this bridge event.
+        }
+      }
+
+      document.addEventListener("WeixinJSBridgeReady", onBridgeReady);
+      window.addEventListener("pageshow", onBridgeReady);
+      onBridgeReady();
+    })();
+  </script>
   <link rel="stylesheet" href="/css/app.css?v=27" />
-  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
-  <script src="https://unpkg.com/vue-router@4/dist/vue-router.global.prod.js"></script>
-  <script src="https://unpkg.com/dompurify@3/dist/purify.min.js"></script>
-  <script src="https://unpkg.com/sortablejs@1/Sortable.min.js"></script>
-  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+  <script defer src="https://unpkg.com/vue@3.5.45/dist/vue.global.prod.js"></script>
+  <script defer src="https://unpkg.com/vue-router@4.6.5/dist/vue-router.global.prod.js"></script>
+  <script defer src="https://unpkg.com/lucide@1.74.0/dist/umd/lucide.min.js"></script>
 </head>
 <body>
   <div id="app" v-cloak></div>
-  <script type="module" src="/js/app.js?v=27"></script>
+  <script type="module" src="/js/app.js?v=29"></script>
 </body>
 </html>

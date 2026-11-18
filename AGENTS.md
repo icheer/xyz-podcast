@@ -27,13 +27,13 @@
   - 若需极简内嵌单文件方案，也可参考 `aigc-gallery` 的 `import indexHtml from "../public/index.html" with { type: "text" }`，但本项目含 3 类视图 + 全局播放器 + 播放列表抽屉，**优先使用 `public/` 多文件 + `[assets]`** 以避免单文件膨胀导致后续 Agent 编辑困难。
 
 ### 2.2 前端（零构建，CDN / unpkg）
-- **核心框架**：`vue@3/dist/vue.global.prod.js`（**严格使用 Options API 风格**，不用 `<script setup>` / Composition API / `.vue` 单文件编译）。
-- **路由**：`vue-router@4/dist/vue-router.global.prod.js`（HTML5 History 模式或 Hash 模式；推荐 History 模式配合 Worker SPA fallback）。
-- **第三方 JS 库（通过 `unpkg.com` 引入，避免重复造轮子）**：
-  - `dompurify@3/dist/purify.min.js`：净化小宇宙 `shownotes` 富文本 HTML，防 XSS。
-  - `sortablejs@1/Sortable.min.js`：播放列表条目移动端触摸拖拽 + PC 鼠标拖拽调序。
-  - `lucide@latest/dist/umd/lucide.min.js`：线性图标库（注意 Vue DOM 更新后通过指令或 `$nextTick` 调用 `lucide.createIcons()`）。
-  - `dayjs@1/dayjs.min.js`（可选，或配合轻量原生工具函数）：日期及相对时间格式化。
+- **核心框架**：`vue@3.5.45/dist/vue.global.prod.js`（**严格使用 Options API 风格**，不用 `<script setup>` / Composition API / `.vue` 单文件编译）。
+- **路由**：`vue-router@4.6.5/dist/vue-router.global.prod.js`（HTML5 History 模式配合 Worker SPA fallback）。
+- **第三方 JS 库**：`unpkg.com` 链接写明完整版本及文件路径。Vue、Vue Router 和 Lucide 通过 `defer` 按序在应用入口前执行。
+  - `dompurify@3.4.18/dist/purify.min.js` 在进入单集页时与详情请求并行加载。节目简介在净化完成后渲染，净化不可用时显示提示，播放和评论可照常使用。
+  - `sortablejs@1.15.7/Sortable.min.js` 在打开有条目的播放列表时加载。加载失败时仍可使用上移、下移等调序按钮。
+  - `lucide@1.74.0/dist/umd/lucide.min.js` 由 `AppIcon.js` 用于渲染线性图标。
+- **脚本组织**：首屏前就必须执行的小段初始化可放在 `index.html`，例如微信字号锁定。通用浏览器辅助逻辑放在已有的 `utils.js`，独立视图和业务模块按职责组织。
 - **CSS 设计**：原生 CSS 变量 + 移动优先响应式布局（`< 768px` 手机卡片流，`>= 768px` PC 自适应宽布局/表格）；**浅色高对比播客风**，并通过 CSS 变量预留后续夜间模式扩展能力。
 
 ### 2.3 目标目录结构
@@ -77,10 +77,9 @@ xyz-podcast/
 │   └── js/
 │       ├── xyzParser.js      # __NEXT_DATA__ 提取与字段清洗（前后端共享纯函数 ES 模块）
 │       ├── api.js            # 前端 fetch 封装（榜单 API + 小宇宙浏览器 CORS 直连 & 后端兜底）
-│       ├── wechatFont.js     # 微信内恢复默认文字缩放，独立于Vue/CDN提前运行
 │       ├── overlayHistory.js # 播放器/队列同URL历史状态，返回优先关闭弹层
 │       ├── storage.js        # localStorage 管理：播放列表队列、断点续播进度、倍速/循环设置
-│       ├── utils.js          # 时长格式化、时间戳识别转换、数字缩写（1.2万）
+│       ├── utils.js          # 时长格式化、时间戳、按需加载 DOMPurify 和 SortableJS
 │       ├── components/
 │       │   ├── AboutDialog.js    # 项目介绍模态框与 GitHub 入口
 │       │   ├── AppIcon.js        # Lucide UMD SVG 安全包装组件（避免 Vue VDOM 冲突）
@@ -205,7 +204,7 @@ xyz-podcast/
 
 ### 6.1 路由与页面
 1. **首页 4 榜单 (`/`, `/hot-podcasts`, `/hot-episodes-new`, `/new-podcasts`)**
-   - 顶部固定导航（`position: fixed` + `--header-h` 动态内边距）：Logo（点击打开项目介绍与 GitHub 链接）、全局搜索框（380ms 防抖；手机由搜索按钮展开）、4 榜单 Tab 切换、播放列表按钮、主题切换与桌面同步时间。详情页仅保留精简品牌/操作栏。微信内通过 `wechatFont.js` 提前恢复默认文字缩放，监听桥接就绪/字号菜单/页面恢复；微信作用域下html/body固定text-size-adjust为100%，普通浏览器不启用。项目介绍弹窗使用局部触摸边界拦截：遮罩、无溢出内容及上下边界阻止默认滚动，溢出内容允许在弹窗内滚动，避免背景列表穿透。
+   - 顶部固定导航（`position: fixed` + `--header-h` 动态内边距）：Logo（点击打开项目介绍与 GitHub 链接）、全局搜索框（380ms 防抖；手机由搜索按钮展开）、4 榜单 Tab 切换、播放列表按钮、主题切换与桌面同步时间。详情页仅保留精简品牌/操作栏。微信内通过 `index.html` 头部内联脚本提前恢复默认文字缩放，监听桥接就绪/字号菜单/页面恢复；微信作用域下html/body固定text-size-adjust为100%，普通浏览器不启用。项目介绍弹窗使用局部触摸边界拦截：遮罩、无溢出内容及上下边界阻止默认滚动，溢出内容允许在弹窗内滚动，避免背景列表穿透。
    - **虚拟滚动 (`RankBoard.js` + `computeVirtualWindow`)**：移动端 `.rank-cards` 与 PC 端 `.rank-table` `<tbody>` 均仅渲染可视窗口及前后缓冲区条目，动态测量并缓存实测行高，通过上下 spacer 保持总文档高度，避免长列表 DOM 膨胀。
    - **移动端 (`< 768px`)**：卡片流布局（排名、正方形封面、主标题、播客名/主播、关键指标标签；单集卡片附「▶ 播放」「+ 队列」按钮）。
    - **PC 端 (`>= 768px`)**：自适应高信息密度表格（支持列头排序、中位数提示），保留快捷播放/入队与进内页交互。
@@ -313,6 +312,9 @@ npm run deploy               # npx wrangler deploy
 - **最新榜单横滑**：`UI-21`（2026-11-18）移动端榜单支持左滑下一个/右滑上一个Tab，首尾不循环，方向阈值和控件/边缘/弹层排除避免误切换，资源v26。Chromium原生320/390px四榜双向、纵滚与600px滚动恢复、卡片点击/音频实例保留及1280px不切换通过；Chromium/WebKit事件边界与后退检查通过，错误0，单测18/18；未部署。
 - **最新榜单历史精简**：`UI-22`（2026-11-18）Tab链接增加replace，横滑也改用router.replace；四榜共用当前历史位置，详情仍push。Chromium/WebKit 390/1280px连续切榜不增加history.length/position、详情返回最后榜单和500px原位置、弹窗返回及离开榜单无需逐个回退验证通过，错误0，单测18/18；资源v27，未部署。
 - **最新部署文档**：`DOC-01`（2026-11-18）README以Fork+Workers Builds网页部署为主，补充自建D1/自动迁移/令牌权限/已有Worker接Git/运行时密钥/首次Cron及控制台SQL状态查询，CLI方式折叠为可选并移除失效下载API。官方文档核对、配置示例/npm映射/SQLite SQL/Markdown及4个测试文件验证通过；只改文档，未操作线上Worker、数据库或Git关联。当前环境`.git`只读导致提交失败，改动留在工作区。
+- **最新 CDN 调整**：`PERF-01` 将入口页 5 个 unpkg 脚本固定为完整版本号。发布记录、文件路径、HTML 和 4 个测试文件检查通过。当前环境无法直接请求 unpkg，HTTP 状态待联网复核。
+- **最新脚本加载调整**：`PERF-02` 按实测 Location 固定 Vue Router 4.6.5 和 Lucide 1.74.0。首屏 3 个 CDN 脚本使用 `defer`，DOMPurify 和 SortableJS 按需加载。4 个测试文件及模拟慢加载、失败重试、播放列表关闭后再打开的检查通过。实际 CDN 请求待联网复核。
+- **最新首屏请求合并**：`PERF-03` 将微信字号初始化内联到 CSS 之前，按需库加载器合入 `utils.js`。本地 Chromium 冷缓存首页 JS 请求由 18 个降至 16 个。5 个固定 CDN 地址均直接返回 HTTP 200，首页渲染、队列拖拽初始化、详情净化和微信桥接模拟通过。单测 18/18。
 - **当前阶段**：`P7-04 已部署上线；P7-05 & P7-06 (移除下载功能、固定顶栏、榜单虚拟滚动) 代码已落盘，待根路径复测、清理遗留文件、提交并重新部署`
 - **已完成事项**：
   - `Phase 0` ~ `Phase 7`（`P7-04` 已部署至 `https://xyz-podcast.icheer.workers.dev`，`wrangler.toml` 已绑定 D1 `224bbab0-b5e7-4547-9735-9038d63b8f53`）。

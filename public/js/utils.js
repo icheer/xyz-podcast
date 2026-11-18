@@ -117,26 +117,60 @@ export function injectTimestampButtons(sanitizedHtml) {
 }
 
 /**
- * Sanitize raw shownotes HTML via DOMPurify (if present in browser) and convert timestamps.
+ * Sanitize shownotes before converting timestamps and rendering the markup.
  */
-export function renderShownotesHtml(rawHtml) {
-  if (typeof rawHtml !== "string" || !rawHtml) return "";
-  let clean = rawHtml;
-  if (typeof window !== "undefined" && window.DOMPurify) {
-    clean = window.DOMPurify.sanitize(rawHtml, {
-      FORBID_TAGS: ["script", "style", "iframe", "object", "embed"],
-      ADD_ATTR: ["target", "rel", "data-timestamp"],
-    });
-    // Ensure external links open safely in a new tab (skip timestamp anchors)
-    clean = clean.replace(
-      /<a\b([^>]*?)>/gi,
-      (m, attrs) => {
-        if (/\bdata-timestamp\b/i.test(attrs)) return m;
-        return `<a${attrs.replace(/\btarget\s*=\s*["'][^"']*["']/gi, "").replace(/\brel\s*=\s*["'][^"']*["']/gi, "")} target="_blank" rel="noopener noreferrer">`;
-      }
-    );
-  }
-  return injectTimestampButtons(clean);
+export function renderShownotesHtml(rawHtml, purify) {
+  if (typeof rawHtml !== "string" || !rawHtml || !purify?.isSupported) return "";
+  const clean = purify.sanitize(rawHtml, {
+    FORBID_TAGS: ["script", "style", "iframe", "object", "embed"],
+    ADD_ATTR: ["target", "rel", "data-timestamp"],
+  });
+  // Ensure external links open safely in a new tab (skip timestamp anchors)
+  const withSafeLinks = clean.replace(
+    /<a\b([^>]*?)>/gi,
+    (m, attrs) => {
+      if (/\bdata-timestamp\b/i.test(attrs)) return m;
+      return `<a${attrs.replace(/\btarget\s*=\s*["'][^"']*["']/gi, "").replace(/\brel\s*=\s*["'][^"']*["']/gi, "")} target="_blank" rel="noopener noreferrer">`;
+    }
+  );
+  return injectTimestampButtons(withSafeLinks);
+}
+
+// Optional browser libraries share one in-flight request per URL.
+const pendingScripts = new Map();
+
+function loadScript(url, globalName) {
+  if (window[globalName]) return Promise.resolve(window[globalName]);
+  if (pendingScripts.has(url)) return pendingScripts.get(url);
+
+  const script = document.createElement("script");
+  script.src = url;
+  script.async = true;
+
+  const pending = new Promise((resolve, reject) => {
+    const fail = () => {
+      script.remove();
+      reject(new Error(`Unable to load ${globalName}`));
+    };
+    script.onload = () => {
+      const library = window[globalName];
+      if (library) resolve(library);
+      else fail();
+    };
+    script.onerror = fail;
+    document.head.append(script);
+  }).finally(() => pendingScripts.delete(url));
+
+  pendingScripts.set(url, pending);
+  return pending;
+}
+
+export function loadDOMPurify() {
+  return loadScript("https://unpkg.com/dompurify@3.4.18/dist/purify.min.js", "DOMPurify");
+}
+
+export function loadSortable() {
+  return loadScript("https://unpkg.com/sortablejs@1.15.7/Sortable.min.js", "Sortable");
 }
 
 /**
