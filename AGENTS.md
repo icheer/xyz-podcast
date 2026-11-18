@@ -242,6 +242,8 @@ xyz-podcast/
 
 ## 7. 常用命令与验证方式
 
+生产部署推荐参考README的Fork+Cloudflare Workers Builds控制台流程；部署命令为 `npm run db:migrate:remote && npm run deploy`，构建命令留空。Fork用户先创建自己的D1并修改database_id，构建令牌需包含D1编辑权限；已有Worker可在设置→Builds连接仓库，保持Worker名称与数据库配置一致。下方命令主要供本地开发和可选CLI部署使用。
+
 > 随着项目推进，以下脚本需在 `package.json` 中落地并保持文档同步。
 
 ```bash
@@ -310,6 +312,7 @@ npm run deploy               # npx wrangler deploy
 - **最新回复折叠规则**：`UI-20` 修复只要有回复就出现展开按钮的问题，改为至少3条二级回复才折叠并显示展开/收起；1～2条含长文本完整展示且无渐隐，资源v25。390/1280px 0～3条边界及展开/收起验证通过，错误0，单测18/18；未部署。
 - **最新榜单横滑**：`UI-21`（2026-11-18）移动端榜单支持左滑下一个/右滑上一个Tab，首尾不循环，方向阈值和控件/边缘/弹层排除避免误切换，资源v26。Chromium原生320/390px四榜双向、纵滚与600px滚动恢复、卡片点击/音频实例保留及1280px不切换通过；Chromium/WebKit事件边界与后退检查通过，错误0，单测18/18；未部署。
 - **最新榜单历史精简**：`UI-22`（2026-11-18）Tab链接增加replace，横滑也改用router.replace；四榜共用当前历史位置，详情仍push。Chromium/WebKit 390/1280px连续切榜不增加history.length/position、详情返回最后榜单和500px原位置、弹窗返回及离开榜单无需逐个回退验证通过，错误0，单测18/18；资源v27，未部署。
+- **最新部署文档**：`DOC-01`（2026-11-18）README以Fork+Workers Builds网页部署为主，补充自建D1/自动迁移/令牌权限/已有Worker接Git/运行时密钥/首次Cron及控制台SQL状态查询，CLI方式折叠为可选并移除失效下载API。官方文档核对、配置示例/npm映射/SQLite SQL/Markdown及4个测试文件验证通过；只改文档，未操作线上Worker、数据库或Git关联。当前环境`.git`只读导致提交失败，改动留在工作区。
 - **当前阶段**：`P7-04 已部署上线；P7-05 & P7-06 (移除下载功能、固定顶栏、榜单虚拟滚动) 代码已落盘，待根路径复测、清理遗留文件、提交并重新部署`
 - **已完成事项**：
   - `Phase 0` ~ `Phase 7`（`P7-04` 已部署至 `https://xyz-podcast.icheer.workers.dev`，`wrangler.toml` 已绑定 D1 `224bbab0-b5e7-4547-9735-9038d63b8f53`）。

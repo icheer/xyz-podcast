@@ -165,6 +165,10 @@
 
 ## 前端设计审查（2026-11-17）
 
+- [x] **DOC-01** README将Fork+Workers Builds控制台部署提前为主路径；写明自建D1替换原作者ID、空构建命令、Cloudflare内自动迁移再部署、D1令牌权限，以及运行时密钥/首次Cron等待/控制台SQL查询。新增已有Worker关联Git步骤，终端部署折叠为进阶选项，并删除已下线下载API文档。
+  - 核对Cloudflare官方Builds/配置/D1迁移/Secrets/Cron文档；README TOML与仓库配置、npm脚本映射、内存SQLite执行迁移和只读SQL、文档顺序及代码围栏检查通过，`npm test`全部4个测试文件通过，diff检查通过。
+  - 本轮只改文档，未连接Cloudflare仓库或部署，也未修改原Worker/D1配置；线上Git构建仍需用户按步骤连接。当前环境`.git`只读，创建index.lock失败，文档改动已留在工作区但未能提交。
+
 - [x] **UI-22** 四榜Tab点击/横滑使用replace共用当前历史位置，详情仍push并正确返回最近榜单及滚动位置，资源v27。
   - Chromium/WebKit 390/1280px验证连续点击四榜history.length与position不增长，手机横滑同样replace；进入频道页仅新增1步，后退返回最后榜单并恢复500px滚动及audio实例；项目介绍返回优先关闭正常，再切榜单后一次返回直接到先前站点文档。页面错误0。
   - `npm test`18/18、JS语法与diff检查通过；未部署。
@@ -322,3 +326,5 @@
 | 2026-11-18 | UI-21 | 移动端榜单左右横滑切换4个Tab，保护纵滚/控件/边缘及弹层 | Chromium原生320/390px与桌面回归、WebKit事件边界检查通过；单测18/18 | 未部署 |
 
 | 2026-11-18 | UI-22 | 四榜切换共用浏览器历史位置，详情返回最近榜单 | Chromium/WebKit手机桌面连续切榜、详情/弹窗后退与滚动恢复通过；单测18/18 | 未部署 |
+
+| 2026-11-18 | DOC-01 | README推荐Fork+Cloudflare Git部署，补充已有Worker迁移与D1自动建表/权限 | 官方文档核对、TOML/npm映射/SQLite SQL/Markdown检查及4个测试文件通过 | 未操作线上Worker，Git关联需在控制台完成 |

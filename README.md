@@ -29,6 +29,116 @@
 
 ---
 
+## 部署到 Cloudflare（推荐：Fork 后关联 GitHub）
+
+**不需要在自己电脑上安装 Node.js、Wrangler，也不需要在终端登录 Cloudflare。** 在 GitHub 和 Cloudflare 网页完成一次配置后，向部署分支提交代码即可自动更新。Cloudflare 原生 [Workers Builds](https://developers.cloudflare.com/workers/ci-cd/builds/) 支持新建 Worker，也支持为已有 Worker 关联仓库。
+
+### 1. Fork 仓库并准备自己的数据库
+
+1. 在 GitHub [Fork 本仓库](https://github.com/icheer/xyz-podcast/fork)。
+2. 在 Cloudflare 控制台进入 **存储和数据库 → D1 SQL 数据库**，创建名为 `xyz-podcast-db` 的数据库，复制它的 **Database ID**。详见 [D1 官方入门文档](https://developers.cloudflare.com/d1/get-started/)。
+3. 在自己的 Fork 中，通过 GitHub 网页编辑 `wrangler.toml`：将 `database_id` 换成刚复制的 ID，然后提交。仓库当前的 ID 属于原作者的数据库，不能用于其他账号。
+
+需要确认的配置如下（只修改对应字段，保留文件中其他配置）：
+
+```toml
+name = "xyz-podcast" # 必须与稍后创建的 Worker 名称一致，可改为自己的名称
+
+[[d1_databases]]
+binding = "DB" # 保持不变，程序通过这个名称访问数据库
+database_name = "xyz-podcast-db"
+database_id = "替换成你自己数据库的 ID"
+migrations_dir = "migrations"
+```
+
+数据库名称保持 `xyz-podcast-db`，这样可以直接使用仓库现有的迁移脚本。此时无需手动建表，下一步会自动初始化。
+
+### 2. 新建 Worker，关联自己的 Fork
+
+在 Cloudflare 控制台进入 **Workers 和 Pages → 创建应用 → 连接 GitHub 仓库**，授权访问自己的 Fork，然后选择该仓库。选择 **Workers** 部署方式，按下表填写：
+
+| 设置 | 填写内容 |
+|---|---|
+| Worker 名称 | 与 `wrangler.toml` 的 `name` 完全一致，默认 `xyz-podcast` |
+| 生产分支 | `main`（或你实际使用的部署分支） |
+| 根目录 | 仓库根目录，通常保持默认 |
+| 构建命令（Build command） | 留空；本项目没有前端构建步骤 |
+| 部署命令（Deploy command） | `npm run db:migrate:remote && npm run deploy` |
+
+命令只需粘贴到 Cloudflare 的配置框，由 Cloudflare 执行。它会先应用尚未执行的 D1 迁移，再发布 Worker 和 `public/` 静态资源；后续部署不会重复执行已完成的迁移。参见 [构建配置](https://developers.cloudflare.com/workers/ci-cd/builds/configuration/) 与 [D1 迁移说明](https://developers.cloudflare.com/d1/reference/migrations/)。
+
+**部署令牌需要包含 D1 权限。** 在构建设置的 **API token** 中选择具备目标账号 `Workers Scripts:Edit` 和 `D1:Edit` 等所需部署权限的令牌。Cloudflare 自动创建的构建令牌默认权限列表未包含 D1；可在 **个人资料 → API Tokens** 编辑该令牌、保留原有部署权限并补上 **Account → D1 → Edit**，或创建具有相应权限的令牌后在构建设置中选择它。详见 [Workers Builds 令牌权限](https://developers.cloudflare.com/workers/ci-cd/builds/configuration/#api-token)。令牌不需要写进仓库。
+
+点击 **保存并部署**。成功后访问控制台提供的 `workers.dev` 地址。以后向生产分支 `git push`，或直接在 GitHub 网页编辑并提交，都会触发自动部署；在 Worker 的 **部署 / Builds** 中查看结果。
+
+### 3. 等待首次榜单同步
+
+部署成功后，先打开 `https://你的域名/api/health` 确认服务和数据库连接正常。**数据库建表成功不代表已有榜单数据**：首次使用需等待北京时间下一次 `08:00` 或 `20:00` 的定时同步，通常再过约 12 分钟完成全量发布。接近同步窗口末尾才部署时，若这一轮未完成，下一窗口会发起新一轮同步。
+
+Cron 已写在 `wrangler.toml` 中，部署时一并配置，无需自己每天操作。初次设置或变更 Cron 可能需要最多 15 分钟传播，参见 [Cron Triggers](https://developers.cloudflare.com/workers/configuration/cron-triggers/)。希望立即灌入数据的进阶用户，也可配置下面的 `ADMIN_KEY` 后调用管理 API。
+
+### 现有 Worker 改为 Git 推送部署
+
+已经用命令行部署过的用户，**直接连接现有 Worker，无需删除或重建 Worker、数据库**：
+
+1. 确认准备关联的仓库里，`wrangler.toml` 的 `name` 与现有 Worker 名称相同，`database_id` 仍指向当前正在使用的 D1 数据库。
+2. 打开 **Workers 和 Pages → 现有 Worker → 设置 → Builds → Connect**，关联自己的 GitHub 仓库与生产分支。
+3. 使用上方相同的构建、部署命令和令牌权限配置；已有 D1 迁移只会执行尚未应用的部分。
+4. 向该分支提交一次变更，在 Builds 中确认该次提交部署成功，再检查原网址、`/api/health`、数据库绑定和定时任务。后续更新直接推送代码即可。
+
+域名、现有数据库和数据可继续使用；仓库配置需与现有资源一致，已有 `ADMIN_KEY` 等运行时密钥也应在设置中核对。官方步骤见 [Connect an existing Worker](https://developers.cloudflare.com/workers/ci-cd/builds/#connect-an-existing-worker)。
+
+### 可选：管理员密钥与抓取兜底
+
+只用定时同步和网页收听，无需配置 `ADMIN_KEY`。如需手动触发同步，在 Worker 的 **设置 → Variables and Secrets** 添加类型为 **Secret** 的 `ADMIN_KEY`，保存并部署；调用 `/api/admin/sync*` 时通过 `X-Admin-Key` 携带它。此项是 **Worker 运行时密钥**，不是 Builds 的构建变量或部署 API Token，参见 [Secrets](https://developers.cloudflare.com/workers/configuration/secrets/)。
+
+| 变量名 | 控制台配置位置 | 用途 |
+|---|---|---|
+| `ADMIN_KEY` | Worker → 设置 → Variables and Secrets → Secret | 可选：手动同步及同步状态接口鉴权 |
+| `XYZ_RELAY_URL` | Worker → 设置 → Variables and Secrets | 可选：外部 HTML 转发地址，浏览器直连小宇宙失败时的后端兜底 |
+| `XYZ_RELAY_TOKEN` | Worker → 设置 → Variables and Secrets → Secret | 可选：转发服务的 `X-Relay-Token` |
+
+普通使用可不配置转发服务；如将非敏感变量写入 `wrangler.toml` 的 `[vars]`，请保持仓库与控制台配置一致。
+
+### 确认定时同步是否完成
+
+在浏览器打开 `/api/boards/meta`。北京时间 `20:00` 这一轮对应当天 `YYYYMMDDT12`，`08:00` 对应 `YYYYMMDDT00`；当 `syncVersion` 为目标版本、`isComplete: true`，且四榜 `syncedCount` 都等于 `total`，即表示完整发布成功。已有完整旧版本时，这里仍展示旧版，不能只看更新时间来判断新一轮是否完成。
+
+想看同步中的进度或失败原因，可进入 **D1 → 该数据库 → Console** 执行以下只读 SQL，无需本地终端：
+
+```sql
+SELECT run_id, status, current_board, current_offset, retry_count,
+       last_error, started_at, finished_at
+FROM sync_runs ORDER BY started_at DESC LIMIT 5;
+
+SELECT value AS active_sync_version
+FROM app_state WHERE key = 'active_sync_version';
+```
+
+`status = completed` 且 `active_sync_version` 等于该 `run_id` 表示发布成功。`running` 表示仍在分批接力，`failed` 时查看 `last_error`。数据库时间为 UTC，北京时间需加 8 小时。也可以使用携带 `X-Admin-Key` 的 `GET /api/admin/sync/status` 查询。
+
+<details>
+<summary>可选：使用本地终端部署（开发者）</summary>
+
+完成下方本地开发的依赖安装后，按需运行：
+
+```bash
+npx wrangler login
+# 仅首次创建数据库；已存在时复用，不要重建
+npx wrangler d1 create xyz-podcast-db
+# 将自己的 database_id 填入 wrangler.toml
+npm run db:migrate:remote
+# 仅需要管理 API 时设置
+npx wrangler secret put ADMIN_KEY
+npm run deploy
+```
+
+自动部署用户无需执行这些命令。首次数据同步与完成判定方式同上。
+
+</details>
+
+---
+
 ## 系统架构
 
 ```mermaid
@@ -145,74 +255,6 @@ npm test
 
 ---
 
-## 生产部署（Cloudflare Workers + D1）
-
-### 1. 登录 Cloudflare（支持无头服务器）
-
-- **无头环境 / SSH 设备授权登录**：
-  ```bash
-  npx wrangler login --device --browser=false
-  ```
-- **或使用 API Token（免交互）**：
-  ```bash
-  export CLOUDFLARE_API_TOKEN="你的_API_Token"   # 需包含 Workers Scripts:Edit 与 D1:Edit
-  npx wrangler whoami
-  ```
-
-### 2. 创建远程 D1、应用迁移并部署
-
-```bash
-# 1. 创建远程 D1 数据库，并将输出的 database_id 填入 wrangler.toml
-npx wrangler d1 create xyz-podcast-db
-
-# 2. 应用远程数据库迁移
-npm run db:migrate:remote
-
-# 3. 设置线上管理员密钥
-npx wrangler secret put ADMIN_KEY
-
-# 4. 部署 Worker 与静态资源
-npm run deploy
-```
-
-### 3. 首次冷启动灌库
-
-部署后等待 Cron 到点（北京时间 `08:00` / `20:00`），或立即执行以下脚本触发首次全量同步（单批 10 页以保持充裕的 Free Plan CPU 余量）：
-
-```bash
-read -sp "请输入 ADMIN_KEY: " ADMIN_KEY && echo ""
-for i in $(seq 1 15); do
-  RESP=$(curl -sS -X POST "https://<你的Worker域名>/api/admin/sync" \
-    -H "Content-Type: application/json" \
-    -H "X-Admin-Key: $ADMIN_KEY" \
-    -d '{"maxPages":10}')
-  echo "Batch $i -> $RESP"
-  echo "$RESP" | grep -qE '"error"|"done":true' && break
-done
-```
-
-### 确认定时同步是否完成
-
-在浏览器打开 `/api/boards/meta`：北京时间20:00这一轮对应当天 `YYYYMMDDT12`，08:00对应 `YYYYMMDDT00`。同时满足 `syncVersion` 为目标版本、`isComplete: true`，且四榜 `syncedCount` 等于 `total`，即可确认该轮已完整发布。仅看更新时间不足以确认成功；已有完整旧版本时，新一轮同步中的进度不会反映在此接口。
-
-查看运行中、失败原因和完成时间，使用 `GET /api/admin/sync/status` 并在 `X-Admin-Key` 中携带线上配置的密钥，或用已登录Wrangler执行只读查询：
-
-```bash
-npx wrangler d1 execute xyz-podcast-db --remote --command "SELECT run_id, status, current_board, current_offset, retry_count, last_error, started_at, finished_at FROM sync_runs ORDER BY started_at DESC LIMIT 5"
-```
-
-`status = completed` 且 `active_sync_version` 已切换至该 `run_id` 表示完整同步发布成功；`running` 表示仍在分批接力，`failed` 查看 `last_error`。默认每批15页、每2分钟触发，按约93页规模通常需7次触发（约12分钟），不能要求20:00刚到即全部完成。数据库时间采用UTC，转换为北京时间需加8小时。
-
-### 可选环境变量
-
-| 变量名 | 配置方式 | 说明 |
-|---|---|---|
-| `ADMIN_KEY` | `.dev.vars` / `wrangler secret put` | `/api/admin/sync*` 管理接口鉴权密钥 |
-| `XYZ_RELAY_URL` | `wrangler.toml [vars]` / secret | 可选：非 Cloudflare Worker 的外部转发地址（用于后端兜底抓小宇宙 HTML） |
-| `XYZ_RELAY_TOKEN` | `wrangler secret put` | 可选：请求 `XYZ_RELAY_URL` 时附带的 `X-Relay-Token` |
-
----
-
 ## API 概览
 
 | 方法与路径 | 鉴权 | 说明 |
@@ -222,7 +264,6 @@ npx wrangler d1 execute xyz-podcast-db --remote --command "SELECT run_id, status
 | `GET /api/boards/:board` | 无 | 查询榜单（支持 `offset`、`limit`、`q`、`genre`、`sort`、`dir`） |
 | `GET /api/xiaoyuzhou/podcast/:pid` | 无 | 播客频道页解析兜底接口 |
 | `GET /api/xiaoyuzhou/episode/:eid` | 无 | 单集播放页解析兜底接口 |
-| `GET /api/audio/download` | 无 | 白名单音频流式下载代理（`url`、`filename`） |
 | `POST /api/admin/sync` | `X-Admin-Key` | 手动触发单批接力同步 |
 | `GET /api/admin/sync/status` | `X-Admin-Key` | 查看历史同步批次与状态 |
 
