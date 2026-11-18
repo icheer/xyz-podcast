@@ -1971,3 +1971,191 @@ button.queue-info { text-align: left; white-space: normal; }
 .queue-menu-text-btn:hover {
   background: var(--accent-soft);
 }
+
+/* ---------- P2 Library Drawer, Podcast Subscriptions & PC Keyboard Shortcuts ---------- */
+.library-panel {
+  min-height: 54dvh;
+}
+
+.library-panel .drawer-body {
+  flex: 1 1 auto;
+}
+
+.library-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.library-tab {
+  height: 34px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: transparent;
+  transition: background-color 150ms, color 150ms;
+}
+
+.library-tab:hover {
+  color: var(--text);
+  background: var(--surface-soft);
+}
+
+.library-tab.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.library-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px 12px;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.library-footer .btn {
+  flex: 1 1 auto;
+  justify-content: center;
+}
+
+.fav-tag {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: 5px;
+  font-size: 10px;
+  font-weight: 600;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.fav-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 9px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+  border: 1px solid var(--border-strong);
+  background: var(--button-bg);
+  color: var(--text-secondary);
+  flex-shrink: 0;
+  transition: background-color 150ms, color 150ms, border-color 150ms;
+}
+
+.fav-toggle-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.fav-toggle-btn.active {
+  border-color: transparent;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.fav-toggle-btn.sm {
+  height: 22px;
+  padding: 0 7px;
+  font-size: 11px;
+}
+
+.fav-hero-btn.is-followed {
+  border-color: transparent;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.ep-pod-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.mute-toggle-btn {
+  height: 30px;
+  min-width: 30px;
+  padding: 0 6px;
+  border-radius: 8px;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.mute-toggle-btn.is-muted {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.about-shortcuts {
+  margin-top: 14px;
+  padding: 11px 13px;
+  border-radius: 12px;
+  background: var(--surface-soft);
+  border: 1px solid var(--border);
+}
+
+.about-shortcuts-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+
+.about-shortcuts-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 10px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.about-shortcuts-grid kbd {
+  display: inline-block;
+  padding: 1px 5px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.35;
+  border-radius: 5px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  color: var(--text);
+}
+
+@media (max-width: 767px) {
+  .about-shortcuts {
+    display: none;
+  }
+}
+
+@media (max-width: 400px) {
+  .header-actions .icon-btn {
+    min-width: 34px;
+    height: 36px;
+    padding: 0 5px;
+    gap: 3px;
+    font-size: 12px;
+  }
+
+  .header-actions .header-btn-label {
+    display: none;
+  }
+
+  .card-pill-actions .card-enter-hint {
+    display: none;
+  }
+}

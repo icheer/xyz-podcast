@@ -81,13 +81,14 @@ xyz-podcast/
 │       ├── storage.js        # localStorage 管理：播放列表队列、断点续播进度、倍速/循环设置
 │       ├── utils.js          # 时长格式化、时间戳、按需加载 DOMPurify 和 SortableJS
 │       ├── components/
-│       │   ├── AboutDialog.js    # 项目介绍模态框与 GitHub 入口
+│       │   ├── AboutDialog.js    # 项目介绍模态框、桌面端快捷键说明与 GitHub 入口
 │       │   ├── AppIcon.js        # Lucide UMD SVG 安全包装组件（避免 Vue VDOM 冲突）
-│       │   ├── RankBoard.js      # 4 榜单展示组件（虚拟滚动卡片/表格、搜索/排序/加载更多）
-│       │   ├── PodcastView.js    # 播客频道页（简介 + 最新 15 集 + 快捷播放/加队列）
-│       │   ├── EpisodeView.js    # 单集播放页（Shownotes 时间戳跳转 + 热评区）
-│       │   ├── PlayerBar.js      # 底部迷你播放器 + 展开全屏播控页（-15s/+30s/倍速/循环）
-│       │   └── PlaylistDrawer.js # 播放列表抽屉（SortableJS 拖拽排序 + 上移/下移/移除）
+│       │   ├── LibraryDrawer.js  # 本地「我的收听」抽屉（关注播客、收听历史、JSON 备份恢复、OPML 导出）
+│       │   ├── RankBoard.js      # 4 榜单展示组件（虚拟滚动卡片/表格、搜索/排序/加载更多、关注标记）
+│       │   ├── PodcastView.js    # 播客频道页（简介 + 关注播客 + 最新 15 集 + 快捷播放/加队列）
+│       │   ├── EpisodeView.js    # 单集播放页（频道关注、Shownotes 与热评时间戳跳转）
+│       │   ├── PlayerBar.js      # 底部迷你播放器 + 展开全屏播控页（-15s/+30s/倍速/循环/静音/睡眠定时）
+│       │   └── PlaylistDrawer.js # 播放列表抽屉（SortableJS 拖拽排序 + 下一首/清已播/移除撤销）
 │       └── app.js            # Vue 3 Options API 根实例、VueRouter 初始化、全局音频控制器
 └── test/                     # Node 内置 test runner (node --test) 单元测试
     ├── frontend.test.js
@@ -229,13 +230,19 @@ xyz-podcast/
   - **循环模式三态**：`sequential`（顺序播完列表后停）、`repeat-one`（单曲循环）、`repeat-all`（列表循环）。
   - **睡眠定时 (`sleepMode`)**：支持 `15/30/45/60 分钟` 倒计时（结束前 3 秒渐弱淡出音量）与 `播完本集自动停`。
   - 集成浏览器 `navigator.mediaSession` API（锁屏封面、标题、快进/快退/上下曲控制，以及 `setPositionState` 实时同步倍速与播放进度）。
+  - **桌面端全局快捷键 (`onGlobalKeydown` + `shouldIgnoreGlobalHotkey`)**：焦点不在输入框/下拉框/可编辑区（以及 `Space` 不在可点击按钮/链接上）且无修饰键/输入法组合时，支持 `Space` 播放/暂停、`←` / `→` 后退 15s / 前进 30s、`[` / `]` 步进倍速、`M` 静音切换、`/` 聚焦榜单搜索框。
+- **本地「我的收听」中心 (`LibraryDrawer`)**：
+  - 免登录本地关注播客（`xyzp_v1_favorites`，上限 300 个）：支持在播客榜、频道页、单集页一键关注/取消关注，单集榜与播客榜同步高亮 `已关注` 标签。
+  - 富元数据收听历史：复用 `xyzp_v1_progress` 附带保存 `{ title, podcastName, pid, image, enclosureUrl }`，支持按最近收听时间浏览、一键续播/重播、单条删除与清空历史（均含 5 秒撤销）。
+  - 数据迁移与开放订阅：支持导出完整收听备份 JSON、从 JSON 智能合并恢复（按更新时间戳保留最新收听进度）、以及导出标准 **OPML 2.0** 订阅文件（自动提取 `xyzrank` 附带的 RSS `xmlUrl` 与小宇宙 `htmlUrl`）。
 - **播放列表 (`PlaylistDrawer`)**：
   - 支持增删、下一首播放插队、清除已播完单集、一键清空、**SortableJS 拖拽排序**（配拖拽手柄避免与移动端页面滚动冲突），调序菜单提供下一首/上移/下移/置顶按钮；单条移除、清除已播完与清空队列均支持5秒撤销。手机按内容自适应高度并限制80dvh，桌面为440px侧栏。
 - **进度保存与恢复 (`localStorage`)**：
   - Key 命名规范（建议前缀 `xyzp_v1_`）：
     - `xyzp_v1_queue`：当前播放列表及 `currentEid`
-    - `xyzp_v1_progress`：以 `eid` 为键的进度映射 `{ [eid]: { currentTime, duration, finished, updatedAt } }`（上限保留最近 200 条按 `updatedAt` 淘汰）
-    - `xyzp_v1_prefs`：`{ playbackRate, loopMode }`
+    - `xyzp_v1_progress`：以 `eid` 为键的进度映射 `{ [eid]: { currentTime, duration, finished, updatedAt, title?, podcastName?, pid?, image?, enclosureUrl? } }`（上限保留最近 200 条按 `updatedAt` 淘汰）
+    - `xyzp_v1_prefs`：`{ playbackRate, loopMode, theme }`
+    - `xyzp_v1_favorites`：本地关注的播客列表 `[{ pid, title, author, image, rssUrl, xyzUrl, addedAt }]`
   - 每播放 3~5 秒、暂停、`seeked`、切集、`pagehide`/`beforeunload` 时持久化；下次加载同一 `eid` 时若 `currentTime > 5` 且未 `finished`（剩余 > 5s）自动定位续播，并给予轻提示（如"已恢复至 12:34"）。
 
 ---
@@ -318,9 +325,12 @@ npm run deploy               # npx wrangler deploy
 - **最新首屏请求合并**：`PERF-03` 将微信字号初始化内联到 CSS 之前，按需库加载器合入 `utils.js`。本地 Chromium 冷缓存首页 JS 请求由 18 个降至 16 个。5 个固定 CDN 地址均直接返回 HTTP 200，首页渲染、队列拖拽初始化、详情净化和微信桥接模拟通过。单测 18/18。
 - **最新 P0 + P1 全量升级（2026-11-18）**：`FEAT-P0-P1` 已完成代码落盘（零破坏性 D1 表结构变更，100% 兼容线上现有库）：
   - **P0**：① 外链冷启动直达详情页返回自动回退 `/` 热榜首页 + 详情页顶栏增加「热榜」入口 + `/:pathMatch(.*)*` 404 兜底路由；② `sw.js` (`v3`) 仅对 `navigate` 请求回退 `"/"`，避免弱网下 `.js/.css` 被注入 HTML；③ `/api/boards/meta` 分类聚合缓存至 `app_state` (`genres:<version>`) 并为 `/api/boards/*` 启用 `Cache-Control` + 按版本隔离的 Worker `caches.default` 边缘缓存；④ `index.html` 首屏内联防深色闪白（FOUC）与系统深色自适应、`sync.js` 单页抓取 12s `AbortController` 超时、清空遗留 `src/handlers/download.js` 代理逻辑。
-  - **P1**：① 热评与二级回复时间戳纯文本切分一键空降跳播（`parseTextWithTimestamps`，按单集时长过滤无效时间，无 `v-html`）；② 全屏播放器新增睡眠定时器（`15/30/45/60分` 倒计时含 3s 音量渐弱 + `播完本集停`）；③ 榜单对比 `prev_sync_version` 展示 `↑ / ↓ / 新(NEW)` 趋势标识、单集榜关联 `podcastPid` 支持一键直跳 `/podcast/:pid`、单集榜透出 `已听 XX% / 已播完` 标签；④ `MediaSession.setPositionState` 锁屏进度同步、队列新增「下一首播放」与「清已播」、清空/清已播/单删统一 5 秒撤销、音频报错自动强制重拉单集详情刷新 `enclosureUrl` 重试。资源版本升至 `app.css?v=28`、`app.js?v=30`。
+  - **P1**：① 热评与二级回复时间戳纯文本切分一键空降跳播（`parseTextWithTimestamps`，按单集时长过滤无效时间，无 `v-html`）；② 全屏播放器新增睡眠定时器（`15/30/45/60分` 倒计时含 3s 音量渐弱 + `播完本集停`）；③ 榜单对比 `prev_sync_version` 展示 `↑ / ↓ / 新(NEW)` 趋势标识、单集榜关联 `podcastPid` 支持一键直跳 `/podcast/:pid`、单集榜透出 `已听 XX% / 已播完` 标签；④ `MediaSession.setPositionState` 锁屏进度同步、队列新增「下一首播放」与「清已播」、清空/清已播/单删统一 5 秒撤销、音频报错自动强制重拉单集详情刷新 `enclosureUrl` 重试。
+- **最新 P2 升级（免登录「我的收听」中心 + PC 全局快捷键，2026-11-18）**：`FEAT-P2` 已完成代码落盘（`P3` CSS 整理按用户计划留待验收后单独进行）：
+  - **本地「我的收听」中心 (`LibraryDrawer.js` + `storage.js` + `overlayHistory.js`)**：顶栏新增「我的收听」入口并接入同 URL 弹层返回栈；支持在播客榜、频道页、单集页一键关注/取消关注播客并在四榜透出 `已关注` 标识；收听进度同步持久化单集标题/频道/封面/直链以驱动「收听历史」Tab（支持一键续播、单删与清空 5 秒撤销）；底部内置 **导出备份 (JSON)**、**导入恢复 (JSON 智能合并)** 与 **OPML 2.0 订阅导出**（含 RSS `xmlUrl` 提取）。
+  - **PC 桌面端全局快捷键 (`app.js` + `utils.js` + `PlayerBar.js` + `AboutDialog.js`)**：新增 `shouldIgnoreGlobalHotkey` 安全守卫（避让输入框、IME 组合、修饰键与聚焦按钮 `Space`），支持 `Space` 播放/暂停、`←`/`→` -15s/+30s、`[`/`]` 倍速步进、`M` 静音切换（含全屏播控页静音按钮与迷你栏状态提示）、`/` 聚焦榜单搜索框，并在项目介绍弹窗及播控按钮 `title` 中展示快捷键提示。资源版本升至 `app.css?v=29`、`app.js?v=31`，`sw.js` 升至 `v4`。
 - **当前注意**：发起本轮会话的终端 `cwd` 仍指向已删除的嵌套目录 `xyz-podcast/xyz-podcast`，因此本轮代码改动后需在仓库根目录 `/home/projects/_ai-apps/xyz-podcast` 运行单测、浏览器验收与部署。
 - **下一位 Agent / 用户终端的精确动作**：
   1. `cd /home/projects/_ai-apps/xyz-podcast && rm -f src/handlers/download.js && npm test`
-  2. `npm run dev` 验证深链返回、404 路由、热评时间戳跳播、睡眠定时、榜单升降趋势与频道直跳、队列下一首/清已播/撤销及边缘缓存头，随后将 `CHECKLIST.md` 中 `FEAT-P0-P1`（及 `P7-05`/`P7-06`）标为 `[x]`。
-  3. 提交并部署：`git add -A && git commit -m "feat: implement P0 stability/caching fixes and P1 listening/discovery upgrades" && npm run deploy`
+  2. `npm run dev` 验收 P0 + P1 + P2（「我的收听」关注/历史/JSON 导入导出/OPML、PC 快捷键、深链返回、睡眠定时、热评时间戳跳播、榜单升降趋势），随后将 `CHECKLIST.md` 中 `FEAT-P2`、`FEAT-P0-P1`（及 `P7-05`/`P7-06`）标为 `[x]`。
+  3. 提交并部署：`git add -A && git commit -m "feat: add local library drawer (subscriptions/history/OPML) and PC playback hotkeys" && npm run deploy`（验收通过后再按需推进 P3 CSS 整理）。

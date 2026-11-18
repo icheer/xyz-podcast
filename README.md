@@ -25,7 +25,9 @@
   - 手机搜索通过顶栏搜索图标展开；详情页精简顶栏，桌面榜单支持「更多指标」。播放器、队列与页面过渡支持系统「减少动态效果」，弹层支持 Escape、焦点限制与关闭后焦点恢复。
   - 支持 **后退 15 秒 (`-15s`) / 前进 30 秒 (`+30s`)**、**0.75x – 2.0x 倍速**、**顺序播放 / 列表循环 / 单曲循环**、**睡眠定时器（15/30/45/60 分钟 · 播完本集自动停 + 音量渐弱）**，以及 `navigator.mediaSession`（含 `setPositionState` 锁屏进度同步）。
   - **播放列表抽屉**：集成 `SortableJS` 触摸/鼠标拖拽排序 + 下一首插队 / 上移 / 下移 / 置顶 / 清除已播完 / 清空队列，手机端按内容自适应高度、桌面端侧栏；单删、清已播与清空均支持 5 秒内一键撤销；音频直链过期时自动重抓刷新。
-  - **`localStorage` 持久化** (`xyzp_v1_*`)：自动保存播放列表、偏好设置与最近 200 集收听进度，刷新或下次打开自动断点续播。
+  - **免登录「我的收听」中心 & 开放备份**：无需注册账号即可在榜单、频道页或单集页一键**关注播客**（榜单同步展示 `已关注` 标识），集中查看**收听历史**并一键续播；支持一键导出/合并恢复 **JSON 收听备份**，以及导出标准 **OPML 2.0 订阅文件**（含 RSS `xmlUrl`）无缝迁移至泛用型播客客户端。
+  - **PC 桌面端全局快捷键**：非输入状态下支持 `Space` 播放/暂停、`←` / `→` 快退 15 秒 / 快进 30 秒、`[` / `]` 调节倍速、`M` 静音切换、`/` 快速聚焦榜单搜索框。
+  - **`localStorage` 持久化** (`xyzp_v1_*`)：自动保存关注列表、播放队列、偏好设置与最近 200 集收听进度，刷新或下次打开自动断点续播。
 - **PWA 沉浸式体验**：内置 `site.webmanifest`、安全区分导航与静态资源的网络优先 `sw.js`、矢量及多尺寸图标（`192/256/512`）与零闪白深/浅色双主题（支持首次跟随系统主题）。
 
 ---
@@ -198,10 +200,10 @@ xyz-podcast/
 │   └── js/
 │       ├── xyzParser.js      # __NEXT_DATA__ 提取与清洗纯函数
 │       ├── api.js            # 前端数据请求与浏览器 CORS / 后端兜底封装
-│       ├── storage.js        # localStorage 队列、断点续播与偏好管理
-│       ├── utils.js          # 格式化、Shownotes 时间戳注入、虚拟窗口计算、scrollKeeperMixin
-│       ├── app.js            # Vue 3 根实例、VueRouter 与全局音频引擎
-│       └── components/       # AppIcon / RankBoard / PodcastView / EpisodeView / PlayerBar / PlaylistDrawer
+│       ├── storage.js        # localStorage 队列、关注播客、收听历史、JSON 备份与 OPML 导出
+│       ├── utils.js          # 格式化、时间戳解析、虚拟窗口计算、快捷键守卫、scrollKeeperMixin
+│       ├── app.js            # Vue 3 根实例、VueRouter、全局音频引擎与快捷键控制
+│       └── components/       # AppIcon / AboutDialog / LibraryDrawer / RankBoard / PodcastView / EpisodeView / PlayerBar / PlaylistDrawer
 └── test/                     # Node 内置 test runner 单元测试
 ```
 

@@ -9,16 +9,25 @@ import {
   injectTimestampButtons,
   parseTextWithTimestamps,
   parseTimestampToSeconds,
+  shouldIgnoreGlobalHotkey,
 } from "../public/js/utils.js";
 import {
   MAX_PROGRESS_ENTRIES,
+  buildOpmlXml,
+  clearAllProgress,
+  exportUserDataObject,
+  extractRssUrlFromLinks,
+  loadFavorites,
   loadPrefs,
   loadProgressMap,
   loadQueue,
+  parseAndMergeBackupJson,
+  removeEpisodeProgress,
   resolveResumeSeconds,
   saveEpisodeProgress,
   savePrefs,
   saveQueue,
+  toggleFavoritePodcast,
 } from "../public/js/storage.js";
 
 function createMemoryStorage() {
@@ -166,4 +175,143 @@ test("parseTextWithTimestamps splits comment timestamps safely and respects maxS
     { type: "ts", text: "02:10", seconds: 130 },
     { type: "text", text: " 亮点，晚上 23:30 打卡" },
   ]);
+});
+
+test("favorites, rich history metadata, JSON backup merge, and OPML export work end-to-end", () => {
+  const storage = createMemoryStorage();
+
+  // Extract RSS URL from xyzrank links
+  const links = [
+    { name: "xyz", url: "https://www.xiaoyuzhoufm.com/podcast/6021f949a789fca4eff4492c" },
+    { name: "rss", url: "https://feed.xyzfm.space/abc123" },
+  ];
+  assert.equal(extractRssUrlFromLinks(links), "https://feed.xyzfm.space/abc123");
+
+  // Follow & unfollow podcast
+  const res1 = toggleFavoritePodcast(
+    {
+      pid: "6021f949a789fca4eff4492c",
+      name: "无人知晓 & 孟岩",
+      authorsText: "孟岩",
+      logoURL: "https://img.test/cover.jpg",
+      links,
+      addedAt: 1000,
+    },
+    storage
+  );
+  assert.equal(res1.added, true);
+  assert.equal(res1.favorites.length, 1);
+  assert.equal(res1.favorites[0].rssUrl, "https://feed.xyzfm.space/abc123");
+
+  // Save rich progress metadata and retain it across subsequent timeupdate saves
+  saveEpisodeProgress(
+    "65a1b2c3d4e5f6a7b8c9d0e1",
+    {
+      currentTime: 180,
+      duration: 1800,
+      finished: false,
+      updatedAt: 2000,
+      meta: {
+        title: "E01 投资与生活",
+        podcastName: "无人知晓 & 孟岩",
+        pid: "6021f949a789fca4eff4492c",
+        image: "https://img.test/ep1.jpg",
+        enclosureUrl: "https://media.xyzcdn.net/ep1.m4a",
+      },
+    },
+    storage
+  );
+  // Subsequent save without meta preserves existing metadata
+  const mapAfterUpdate = saveEpisodeProgress(
+    "65a1b2c3d4e5f6a7b8c9d0e1",
+    { currentTime: 420, duration: 1800, finished: false, updatedAt: 5000 },
+    storage
+  );
+  assert.equal(mapAfterUpdate["65a1b2c3d4e5f6a7b8c9d0e1"].title, "E01 投资与生活");
+  assert.equal(mapAfterUpdate["65a1b2c3d4e5f6a7b8c9d0e1"].currentTime, 420);
+
+  // OPML export escapes XML entities and includes xmlUrl + htmlUrl
+  const opml = buildOpmlXml(loadFavorites(storage));
+  assert.match(opml, /<opml version="2\.0">/);
+  assert.match(opml, /text="无人知晓 &amp; 孟岩"/);
+  assert.match(opml, /xmlUrl="https:\/\/feed\.xyzfm\.space\/abc123"/);
+  assert.match(opml, /htmlUrl="https:\/\/www\.xiaoyuzhoufm\.com\/podcast\/6021f949a789fca4eff4492c"/);
+
+  // Export JSON backup and merge into a second device with newer/older conflicting records
+  const backupJson = JSON.stringify(exportUserDataObject(storage));
+  const targetStorage = createMemoryStorage();
+  toggleFavoritePodcast(
+    { pid: "6132a858b890edb5f005503d", title: "知行小酒馆", addedAt: 3000 },
+    targetStorage
+  );
+  // Newer local progress on target device should NOT be overwritten by older backup progress
+  saveEpisodeProgress(
+    "65a1b2c3d4e5f6a7b8c9d0e1",
+    { currentTime: 900, duration: 1800, finished: false, updatedAt: 9000 },
+    targetStorage
+  );
+
+  const merged = parseAndMergeBackupJson(backupJson, targetStorage);
+  assert.equal(merged.favorites.length, 2);
+  assert.equal(merged.progressMap["65a1b2c3d4e5f6a7b8c9d0e1"].currentTime, 900);
+  // Metadata from backup is preserved even when local timestamp won
+  assert.equal(merged.progressMap["65a1b2c3d4e5f6a7b8c9d0e1"].title, "E01 投资与生活");
+
+  // Invalid JSON throws descriptive error
+  assert.throws(() => parseAndMergeBackupJson("{bad json", targetStorage), /无效的 JSON/);
+
+  // Remove single & clear all progress
+  removeEpisodeProgress("65a1b2c3d4e5f6a7b8c9d0e1", targetStorage);
+  assert.equal(Boolean(loadProgressMap(targetStorage)["65a1b2c3d4e5f6a7b8c9d0e1"]), false);
+  clearAllProgress(storage);
+  assert.deepEqual(loadProgressMap(storage), {});
+});
+
+test("shouldIgnoreGlobalHotkey guards typing, modifiers, IME, and focused interactive buttons", () => {
+  // Allowed on document body
+  assert.equal(
+    shouldIgnoreGlobalHotkey({ key: " ", code: "Space", target: { tagName: "BODY" } }),
+    false
+  );
+  assert.equal(
+    shouldIgnoreGlobalHotkey({ key: "ArrowRight", target: { tagName: "DIV" } }),
+    false
+  );
+  assert.equal(
+    shouldIgnoreGlobalHotkey({ key: "[", target: { tagName: "MAIN" } }),
+    false
+  );
+
+  // Ignored inside inputs/textareas/selects/contentEditable
+  assert.equal(
+    shouldIgnoreGlobalHotkey({ key: " ", target: { tagName: "INPUT" } }),
+    true
+  );
+  assert.equal(
+    shouldIgnoreGlobalHotkey({ key: "/", target: { tagName: "TEXTAREA" } }),
+    true
+  );
+  assert.equal(
+    shouldIgnoreGlobalHotkey({ key: "m", target: { tagName: "DIV", isContentEditable: true } }),
+    true
+  );
+
+  // Ignored with Ctrl/Meta/Alt or IME composition
+  assert.equal(
+    shouldIgnoreGlobalHotkey({ key: "ArrowLeft", metaKey: true, target: { tagName: "BODY" } }),
+    true
+  );
+  assert.equal(
+    shouldIgnoreGlobalHotkey({ key: " ", isComposing: true, target: { tagName: "BODY" } }),
+    true
+  );
+
+  // Space ignored on focused BUTTON or inside [role="link"] card, while ArrowRight still works
+  const buttonChild = {
+    tagName: "SPAN",
+    closest: (sel) => (sel.includes("button") ? {} : null),
+  };
+  assert.equal(shouldIgnoreGlobalHotkey({ key: " ", target: { tagName: "BUTTON" } }), true);
+  assert.equal(shouldIgnoreGlobalHotkey({ key: " ", target: buttonChild }), true);
+  assert.equal(shouldIgnoreGlobalHotkey({ key: "ArrowRight", target: buttonChild }), false);
 });

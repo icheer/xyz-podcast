@@ -417,6 +417,16 @@ export default {
       this.savedScrollY = window.scrollY || 0;
       this.$router.push(`/podcast/${pid}`);
     },
+    isPodcastFav(pid) {
+      return this.playerActions.isFavoritePodcast(pid);
+    },
+    handleToggleFavPodcast(item) {
+      if (!item?.pid) {
+        this.playerActions.showToast("该播客暂无小宇宙频道 ID");
+        return;
+      }
+      this.playerActions.toggleFavoritePodcast(item);
+    },
     openItem(item) {
       this.savedScrollY = window.scrollY || 0;
       if (this.isEpisodeBoard) {
@@ -557,6 +567,7 @@ export default {
                 <span v-else class="card-subtitle">
                   {{ isEpisodeBoard ? entry.item.podcastName : (entry.item.authorsText || '-') }}
                 </span>
+                <span v-if="isEpisodeBoard && entry.item.podcastPid && isPodcastFav(entry.item.podcastPid)" class="fav-tag">已关注</span>
                 <span v-if="entry.item.primaryGenreName" class="genre-tag">{{ entry.item.primaryGenreName }}</span>
                 <span
                   v-if="isEpisodeBoard && episodeProgressText(entry.item)"
@@ -608,9 +619,23 @@ export default {
               </button>
             </div>
 
-            <div class="card-enter-hint" v-else>
-              <span>频道</span>
-              <app-icon name="arrow-right" :size="13" />
+            <div class="card-pill-actions" v-else>
+              <button
+                v-if="entry.item.pid"
+                type="button"
+                class="fav-toggle-btn"
+                :class="{ active: isPodcastFav(entry.item.pid) }"
+                :aria-pressed="isPodcastFav(entry.item.pid)"
+                @click.stop="handleToggleFavPodcast(entry.item)"
+                :title="isPodcastFav(entry.item.pid) ? '取消关注播客' : '关注播客'"
+              >
+                <app-icon :name="isPodcastFav(entry.item.pid) ? 'check' : 'heart'" :size="12" />
+                <span>{{ isPodcastFav(entry.item.pid) ? '已关注' : '关注' }}</span>
+              </button>
+              <span class="card-enter-hint">
+                <span>频道</span>
+                <app-icon name="arrow-right" :size="13" />
+              </span>
             </div>
           </div>
         </article>
@@ -680,6 +705,7 @@ export default {
                         :title="'查看播客频道：' + entry.item.podcastName"
                       >{{ entry.item.podcastName }}</button>
                       <span v-else class="table-sub">{{ entry.item.podcastName }}</span>
+                      <span v-if="entry.item.podcastPid && isPodcastFav(entry.item.podcastPid)" class="fav-tag">已关注</span>
                       <span
                         v-if="episodeProgressText(entry.item)"
                         class="ep-listen-tag tabular"
@@ -774,7 +800,21 @@ export default {
                   <img v-cover class="table-cover" :src="entry.item.logoURL" :alt="entry.item.name" loading="lazy" />
                   <div style="min-width:0">
                     <div class="table-title">{{ entry.item.name }}</div>
-                    <div class="table-sub">{{ entry.item.authorsText || '-' }}</div>
+                    <div class="table-sub-row">
+                      <span class="table-sub">{{ entry.item.authorsText || '-' }}</span>
+                      <button
+                        v-if="entry.item.pid"
+                        type="button"
+                        class="fav-toggle-btn sm"
+                        :class="{ active: isPodcastFav(entry.item.pid) }"
+                        :aria-pressed="isPodcastFav(entry.item.pid)"
+                        @click.stop="handleToggleFavPodcast(entry.item)"
+                        :title="isPodcastFav(entry.item.pid) ? '取消关注播客' : '关注播客'"
+                      >
+                        <app-icon :name="isPodcastFav(entry.item.pid) ? 'check' : 'heart'" :size="11" />
+                        <span>{{ isPodcastFav(entry.item.pid) ? '已关注' : '关注' }}</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
               </td>

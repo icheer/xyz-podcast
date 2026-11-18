@@ -2,18 +2,25 @@ import { fetchBoardsMeta, fetchEpisodeDetail } from "./api.js";
 import { createOverlayHistory } from "./overlayHistory.js";
 import {
   LOOP_MODES,
+  PLAYBACK_RATES,
+  clearAllProgress,
+  loadFavorites,
   loadPrefs,
   loadProgressMap,
   loadQueue,
+  removeEpisodeProgress,
   resolveResumeSeconds,
   saveEpisodeProgress,
   savePrefs,
+  saveProgressMap,
   saveQueue,
+  toggleFavoritePodcast,
 } from "./storage.js";
-import { formatDurationSeconds } from "./utils.js";
+import { formatDurationSeconds, shouldIgnoreGlobalHotkey } from "./utils.js";
 import AppIcon from "./components/AppIcon.js";
 import AboutDialog from "./components/AboutDialog.js";
 import EpisodeView from "./components/EpisodeView.js";
+import LibraryDrawer from "./components/LibraryDrawer.js";
 import PlayerBar from "./components/PlayerBar.js";
 import PlaylistDrawer from "./components/PlaylistDrawer.js";
 import PodcastView from "./components/PodcastView.js";
@@ -105,6 +112,7 @@ const AppRoot = {
   components: {
     AppIcon,
     AboutDialog,
+    LibraryDrawer,
     PlayerBar,
     PlaylistDrawer,
   },
@@ -112,11 +120,13 @@ const AppRoot = {
     const prefs = loadPrefs();
     const queueData = loadQueue();
     const progressMap = loadProgressMap();
+    const favorites = loadFavorites();
 
     return {
       searchQuery: "",
       searchOpen: false,
       aboutOpen: false,
+      libraryOpen: false,
       boardMeta: {},
       theme: prefs.theme,
       deferredInstallPrompt: null,
@@ -128,8 +138,10 @@ const AppRoot = {
         queue: queueData.items,
         currentEid: queueData.currentEid,
         progressMap,
+        favorites,
         isPlaying: false,
         isBuffering: false,
+        isMuted: false,
         currentTime: 0,
         duration: 0,
         playbackRate: prefs.playbackRate,
@@ -160,12 +172,21 @@ const AppRoot = {
         seekTo: this.seekTo,
         skipBy: this.skipBy,
         setPlaybackRate: this.setPlaybackRate,
+        stepPlaybackRate: this.stepPlaybackRate,
+        toggleMute: this.toggleMute,
         cycleLoopMode: this.cycleLoopMode,
         setSleepTimer: this.setSleepTimer,
         playNext: this.playNext,
         playPrev: this.playPrev,
         setExpanded: this.setExpanded,
         setPlaylistOpen: this.setPlaylistOpen,
+        setLibraryOpen: this.setLibraryOpen,
+        isFavoritePodcast: this.isFavoritePodcast,
+        toggleFavoritePodcast: this.handleToggleFavoritePodcast,
+        removeProgressItem: this.removeProgressItem,
+        clearProgressHistory: this.clearProgressHistory,
+        restoreProgressSnapshot: this.restoreProgressSnapshot,
+        applyImportedBackup: this.applyImportedBackup,
         navigateFromPlayer: this.navigateFromPlayer,
         smartBack: this.smartBack,
         showToast: this.showToast,
@@ -178,6 +199,9 @@ const AppRoot = {
     },
     isBoardRoute() {
       return Boolean(this.$route.meta?.board);
+    },
+    favoritePidSet() {
+      return new Set((this.player.favorites || []).map((f) => f.pid));
     },
     syncBadgeText() {
       const updated = this.boardMeta?.updatedAt;
@@ -207,6 +231,7 @@ const AppRoot = {
     this._overlayHistory = createOverlayHistory(router, stack => {
       this.player.expanded = stack.includes("player") && this.hasCurrentTrack;
       this.player.playlistOpen = stack.includes("queue");
+      this.libraryOpen = stack.includes("library");
       this.aboutOpen = stack.includes("about");
     }, () => this.showToast("切换弹窗失败，请重试"));
     this._overlayHistory.sync();
@@ -216,6 +241,7 @@ const AppRoot = {
     this.setupMediaSessionHandlers();
     this.registerPwa();
     this.initHeaderObserver();
+    window.addEventListener("keydown", this.onGlobalKeydown);
     window.addEventListener("pagehide", this.flushProgressNow);
     window.addEventListener("beforeunload", this.flushProgressNow);
   },
@@ -224,6 +250,7 @@ const AppRoot = {
     this._overlayHistory?.destroy();
     this.flushProgressNow();
     this.destroyHeaderObserver();
+    window.removeEventListener("keydown", this.onGlobalKeydown);
     window.removeEventListener("pagehide", this.flushProgressNow);
     window.removeEventListener("beforeunload", this.flushProgressNow);
   },
@@ -240,6 +267,10 @@ const AppRoot = {
       if (!open) this.aboutOpen = false;
       return this._overlayHistory.set("about", Boolean(open));
     },
+    setLibraryOpen(open) {
+      if (!open) this.libraryOpen = false;
+      return this._overlayHistory.set("library", Boolean(open));
+    },
     setExpanded(open) {
       if (!open) this.player.expanded = false;
       return this._overlayHistory.set("player", Boolean(open));
@@ -250,6 +281,122 @@ const AppRoot = {
     },
     navigateFromPlayer(path) {
       return this._overlayHistory.navigate(path);
+    },
+    focusSearchInput() {
+      if (!this.isBoardRoute) return;
+      this.searchOpen = true;
+      this.$nextTick(() => {
+        const input = this.$refs.searchInput;
+        if (input) {
+          input.focus();
+          if (typeof input.select === "function") input.select();
+        }
+      });
+    },
+    onGlobalKeydown(event) {
+      if (shouldIgnoreGlobalHotkey(event)) return;
+      const key = event.key;
+
+      if (key === "/") {
+        if (
+          this.isBoardRoute &&
+          !this.aboutOpen &&
+          !this.libraryOpen &&
+          !this.player.playlistOpen &&
+          !this.player.expanded
+        ) {
+          event.preventDefault();
+          this.focusSearchInput();
+        }
+        return;
+      }
+
+      if (!this.hasCurrentTrack) return;
+
+      if ((key === " " || event.code === "Space") && !event.shiftKey) {
+        event.preventDefault();
+        this.togglePlay();
+      } else if (key === "ArrowLeft" && !event.shiftKey) {
+        event.preventDefault();
+        if (typeof event.target?.closest === "function" && event.target.closest('[role="slider"]')) {
+          return;
+        }
+        this.skipBy(-15);
+      } else if (key === "ArrowRight" && !event.shiftKey) {
+        event.preventDefault();
+        if (typeof event.target?.closest === "function" && event.target.closest('[role="slider"]')) {
+          return;
+        }
+        this.skipBy(30);
+      } else if (key === "[") {
+        event.preventDefault();
+        this.stepPlaybackRate(-1);
+      } else if (key === "]") {
+        event.preventDefault();
+        this.stepPlaybackRate(1);
+      } else if ((key === "m" || key === "M") && !event.shiftKey) {
+        event.preventDefault();
+        this.toggleMute();
+      }
+    },
+    isFavoritePodcast(pid) {
+      if (!pid) return false;
+      return this.favoritePidSet.has(String(pid));
+    },
+    handleToggleFavoritePodcast(pod, { silentToast = false } = {}) {
+      if (!pod?.pid) return false;
+      const { favorites, added } = toggleFavoritePodcast(pod);
+      this.player.favorites = favorites;
+      if (!silentToast) {
+        const title = pod.title || pod.name || "该播客";
+        this.showToast(added ? `已关注「${title}」` : `已取消关注「${title}」`);
+      }
+      return added;
+    },
+    removeProgressItem(eid) {
+      if (!eid) return;
+      this.player.progressMap = removeEpisodeProgress(eid);
+    },
+    clearProgressHistory() {
+      this.player.progressMap = clearAllProgress();
+    },
+    restoreProgressSnapshot(map) {
+      this.player.progressMap = saveProgressMap(map);
+    },
+    applyImportedBackup(merged) {
+      if (!merged) return;
+      if (Array.isArray(merged.favorites)) {
+        this.player.favorites = merged.favorites;
+      }
+      if (merged.progressMap && typeof merged.progressMap === "object") {
+        this.player.progressMap = merged.progressMap;
+      }
+      if (merged.queue && Array.isArray(merged.queue.items)) {
+        const hadTrack = Boolean(this.player.currentEid);
+        this.player.queue = merged.queue.items;
+        if (!hadTrack && merged.queue.currentEid) {
+          this.player.currentEid = merged.queue.currentEid;
+          this.restoreCurrentTrackOnBoot();
+        }
+      }
+      if (merged.prefs) {
+        if (merged.prefs.playbackRate) {
+          this.player.playbackRate = merged.prefs.playbackRate;
+          if (this.$refs.audioEl) {
+            this.$refs.audioEl.playbackRate = merged.prefs.playbackRate;
+          }
+        }
+        if (merged.prefs.loopMode) {
+          this.player.loopMode = merged.prefs.loopMode;
+        }
+        if (merged.prefs.theme && merged.prefs.theme !== this.theme) {
+          this.theme = merged.prefs.theme;
+          this.applyTheme();
+        }
+      }
+      const favCount = this.player.favorites.length;
+      const histCount = Object.keys(this.player.progressMap || {}).length;
+      this.showToast(`恢复成功：${favCount} 个关注 · ${histCount} 条收听记录`);
     },
     finishPageLeave(_el, done) {
       // Remove the old view before Vue Router resets the document scroll position.
@@ -288,7 +435,7 @@ const AppRoot = {
     onBoardTouchStart(event) {
       this._boardSwipe = null;
       if (!this.isBoardRoute || window.innerWidth >= 768 || event.touches.length !== 1 ||
-          this.aboutOpen || this.player.expanded || this.player.playlistOpen) return;
+          this.aboutOpen || this.libraryOpen || this.player.expanded || this.player.playlistOpen) return;
       if (!event.target.closest('.rank-board') ||
           event.target.closest('button, a, input, select, textarea, [role="slider"]')) return;
       const touch = event.touches[0];
@@ -316,7 +463,7 @@ const AppRoot = {
       this._boardSwipe = null;
       if (!swipe || swipe.axis !== 'x' || event.touches.length ||
           performance.now() - swipe.started > 700 || this.$route.path !== swipe.path ||
-          window.innerWidth >= 768 || this.aboutOpen || this.player.expanded || this.player.playlistOpen) return;
+          window.innerWidth >= 768 || this.aboutOpen || this.libraryOpen || this.player.expanded || this.player.playlistOpen) return;
       const touch = event.changedTouches[0];
       if (!touch) return;
       const dx = touch.clientX - swipe.x;
@@ -401,6 +548,7 @@ const AppRoot = {
       this.player.duration = track.duration || saved?.duration || 0;
       audio.src = track.enclosureUrl;
       audio.playbackRate = this.player.playbackRate;
+      audio.muted = Boolean(this.player.isMuted);
       this.updateMediaSessionMetadata(track);
     },
     async playTrack(track, options = {}) {
@@ -412,6 +560,7 @@ const AppRoot = {
       if (!audio) return;
 
       this.flushProgressNow();
+      this.lastProgressSaveMs = 0;
 
       const existsIdx = this.player.queue.findIndex((t) => t.eid === track.eid);
       if (existsIdx === -1) {
@@ -460,6 +609,7 @@ const AppRoot = {
       }
 
       audio.playbackRate = this.player.playbackRate;
+      audio.muted = Boolean(this.player.isMuted);
       this.updateMediaSessionMetadata(track);
 
       try {
@@ -647,6 +797,26 @@ const AppRoot = {
       this.updateMediaSessionPosition();
       this.showToast(`倍速切换为 ${rate}x`);
     },
+    stepPlaybackRate(delta) {
+      const idx = PLAYBACK_RATES.indexOf(this.player.playbackRate);
+      const curIdx = idx >= 0 ? idx : PLAYBACK_RATES.indexOf(1.0);
+      const nextIdx = Math.max(0, Math.min(PLAYBACK_RATES.length - 1, curIdx + delta));
+      const nextRate = PLAYBACK_RATES[nextIdx];
+      if (nextRate === this.player.playbackRate) {
+        this.showToast(`已是${delta > 0 ? "最高" : "最低"}倍速 ${nextRate}x`);
+        return;
+      }
+      this.setPlaybackRate(nextRate);
+    },
+    toggleMute() {
+      const audio = this.$refs.audioEl;
+      const nextMuted = !this.player.isMuted;
+      this.player.isMuted = nextMuted;
+      if (audio) {
+        audio.muted = nextMuted;
+      }
+      this.showToast(nextMuted ? "已静音 (按 M 恢复)" : "已取消静音");
+    },
     clearSleepTimerSilent() {
       if (this._sleepInterval) {
         clearInterval(this._sleepInterval);
@@ -745,11 +915,21 @@ const AppRoot = {
       const now = Date.now();
       if (!force && now - this.lastProgressSaveMs < 3000) return;
       this.lastProgressSaveMs = now;
+      const track = this.getCurrentTrack();
       this.player.progressMap = saveEpisodeProgress(eid, {
         currentTime: this.player.currentTime,
-        duration: this.player.duration,
+        duration: this.player.duration || track?.duration || 0,
         finished,
         updatedAt: now,
+        meta: track
+          ? {
+              title: track.title,
+              podcastName: track.podcastName,
+              pid: track.pid,
+              image: track.image,
+              enclosureUrl: track.enclosureUrl,
+            }
+          : null,
       });
       this.updateMediaSessionPosition();
     },
@@ -776,6 +956,7 @@ const AppRoot = {
         this.player.duration = audio.duration;
       }
       audio.playbackRate = this.player.playbackRate;
+      audio.muted = Boolean(this.player.isMuted);
       if (this.pendingSeekSeconds !== null) {
         const maxDur = Number.isFinite(audio.duration) ? audio.duration : this.pendingSeekSeconds;
         audio.currentTime = Math.min(this.pendingSeekSeconds, Math.max(0, maxDur - 1));
@@ -935,7 +1116,7 @@ const AppRoot = {
                 aria-label="返回热榜首页"
               >
                 <app-icon name="home" :size="16" />
-                <span>热榜</span>
+                <span class="header-btn-label">热榜</span>
               </router-link>
               <button v-if="isBoardRoute" type="button" class="icon-btn mobile-search-toggle" aria-label="搜索榜单" :aria-expanded="searchOpen || !!searchQuery" @click="searchOpen = !searchOpen; searchOpen && $nextTick(() => $refs.searchInput.focus())"><app-icon name="search" :size="17" /></button>
               <button
@@ -946,7 +1127,18 @@ const AppRoot = {
                 title="安装桌面应用"
               >
                 <app-icon name="download" :size="15" />
-                <span>安装</span>
+                <span class="header-btn-label">安装</span>
+              </button>
+
+              <button
+                type="button"
+                class="icon-btn"
+                @click="setLibraryOpen(true)"
+                title="我的收听（关注播客与收听历史）"
+                aria-label="打开我的收听"
+              >
+                <app-icon name="bookmark" :size="16" />
+                <span v-if="player.favorites.length > 0" class="tabular">{{ player.favorites.length }}</span>
               </button>
 
               <button
@@ -990,7 +1182,7 @@ const AppRoot = {
                 v-model="searchQuery"
                 type="search"
                 class="search-input"
-                placeholder="搜索单集、播客、主播或分类..."
+                placeholder="搜索单集、播客、主播或分类... (按 / 聚焦)"
                 aria-label="搜索榜单"
               />
               <button
@@ -1038,6 +1230,7 @@ const AppRoot = {
 
       <player-bar />
       <playlist-drawer />
+      <library-drawer :open="libraryOpen" :favorites="player.favorites" @close="setLibraryOpen(false)" />
       <about-dialog :open="aboutOpen" @close="setAboutOpen(false)" />
 
       <transition name="toast"><div v-if="toastMessage" class="toast-pill" role="status">{{ toastMessage }}</div></transition>

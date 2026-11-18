@@ -117,6 +117,7 @@ export default {
               <div class="mini-title">{{ track.title }}</div>
               <div class="mini-sub tabular">
                 <span>{{ formatDurationSeconds(displayCurrentTime) }} / {{ formatDurationSeconds(effectiveDuration) }}</span>
+                <span v-if="player.isMuted" style="color:var(--accent);font-weight:600;"> · 已静音</span>
                 <span v-if="track.podcastName"> · {{ track.podcastName }}</span>
               </div>
             </div>
@@ -127,7 +128,7 @@ export default {
               type="button"
               class="skip-icon-btn mini-skip"
               @click="playerActions.skipBy(-15)"
-              title="后退 15 秒"
+              title="后退 15 秒 (←)"
               aria-label="后退 15 秒"
             >
               <app-icon name="skip-back-15" :size="24" />
@@ -137,7 +138,7 @@ export default {
               type="button"
               class="player-circle-btn primary"
               @click="playerActions.togglePlay()"
-              :title="player.isPlaying ? '暂停' : '播放'"
+              :title="(player.isPlaying ? '暂停' : '播放') + ' (Space)'"
             >
               <app-icon class="buffering-icon" v-if="player.isBuffering" name="loader-circle" :size="18" />
               <app-icon v-else-if="player.isPlaying" name="pause" :size="18" />
@@ -148,7 +149,7 @@ export default {
               type="button"
               class="skip-icon-btn mini-skip"
               @click="playerActions.skipBy(30)"
-              title="前进 30 秒"
+              title="前进 30 秒 (→)"
               aria-label="前进 30 秒"
             >
               <app-icon name="skip-forward-30" :size="24" />
@@ -183,7 +184,19 @@ export default {
               <app-icon name="chevron-down" :size="18" />
               <span>收起</span>
             </button>
-            <span style="font-size: 13px; color: var(--text-muted); font-weight: 600;">正在收听</span>
+            <div style="display:flex;align-items:center;gap:6px;">
+              <span style="font-size: 13px; color: var(--text-muted); font-weight: 600;">正在收听</span>
+              <button
+                type="button"
+                class="icon-btn mute-toggle-btn"
+                :class="{ 'is-muted': player.isMuted }"
+                @click="playerActions.toggleMute()"
+                :title="player.isMuted ? '取消静音 (M)' : '静音 (M)'"
+                :aria-label="player.isMuted ? '取消静音' : '静音'"
+              >
+                <app-icon :name="player.isMuted ? 'volume-x' : 'volume-2'" :size="15" />
+              </button>
+            </div>
             <button type="button" class="icon-btn" @click="openEpisodePage">
               <span>详情页</span>
             </button>
@@ -229,17 +242,17 @@ export default {
               <app-icon name="skip-back" :size="22" />
             </button>
 
-            <button type="button" class="transport-skip" @click="playerActions.skipBy(-15)" title="后退 15 秒" aria-label="后退 15 秒">
+            <button type="button" class="transport-skip" @click="playerActions.skipBy(-15)" title="后退 15 秒 (←)" aria-label="后退 15 秒">
               <app-icon name="skip-back-15" :size="28" />
             </button>
 
-            <button type="button" class="transport-play" @click="playerActions.togglePlay()" :title="player.isPlaying ? '暂停' : '播放'">
+            <button type="button" class="transport-play" @click="playerActions.togglePlay()" :title="(player.isPlaying ? '暂停' : '播放') + ' (Space)'">
               <app-icon class="buffering-icon" v-if="player.isBuffering" name="loader-circle" :size="28" />
               <app-icon v-else-if="player.isPlaying" name="pause" :size="28" />
               <app-icon v-else name="play" :size="28" />
             </button>
 
-            <button type="button" class="transport-skip" @click="playerActions.skipBy(30)" title="前进 30 秒" aria-label="前进 30 秒">
+            <button type="button" class="transport-skip" @click="playerActions.skipBy(30)" title="前进 30 秒 (→)" aria-label="前进 30 秒">
               <app-icon name="skip-forward-30" :size="28" />
             </button>
 
@@ -271,7 +284,7 @@ export default {
           </div>
 
           <div class="utility-row">
-            <button type="button" class="util-btn" @click="toggleRatePicker">
+            <button type="button" class="util-btn" @click="toggleRatePicker" title="调节倍速 (快捷键 [ / ])">
               <strong class="tabular" style="font-size: 14px;">{{ player.playbackRate }}x</strong>
               <span>倍速</span>
             </button>

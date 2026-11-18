@@ -66,6 +66,9 @@ export default {
       const p = this.episode?.payType;
       return Boolean(p && p !== "FREE");
     },
+    isPodcastFollowed() {
+      return this.playerActions.isFavoritePodcast(this.episode?.podcast?.pid);
+    },
   },
   watch: {
     eid: {
@@ -177,6 +180,16 @@ export default {
       }
       this.playerActions.enqueueNext(this.buildTrack());
     },
+    toggleFollowPodcast() {
+      const pod = this.episode?.podcast;
+      if (!pod?.pid) return;
+      this.playerActions.toggleFavoritePodcast({
+        pid: pod.pid,
+        title: pod.title,
+        author: pod.author,
+        image: pod.image,
+      });
+    },
     commentSegments(text) {
       return parseTextWithTimestamps(text, this.episode?.duration || 0);
     },
@@ -244,15 +257,26 @@ export default {
           <div class="hero-main">
             <img v-cover class="hero-cover" :src="episode.image" :alt="episode.title" />
             <div class="hero-info">
-              <router-link
-                v-if="episode.podcast?.pid"
-                :to="'/podcast/' + episode.podcast.pid"
-                class="podcast-link-pill"
-              >
-                <img v-cover v-if="episode.podcast.image" :src="episode.podcast.image" :alt="episode.podcast.title" />
-                <span>{{ episode.podcast.title }}</span>
-                <app-icon name="arrow-right" :size="13" />
-              </router-link>
+              <div v-if="episode.podcast?.pid" class="ep-pod-row">
+                <router-link
+                  :to="'/podcast/' + episode.podcast.pid"
+                  class="podcast-link-pill"
+                >
+                  <img v-cover v-if="episode.podcast.image" :src="episode.podcast.image" :alt="episode.podcast.title" />
+                  <span>{{ episode.podcast.title }}</span>
+                  <app-icon name="arrow-right" :size="13" />
+                </router-link>
+                <button
+                  type="button"
+                  class="fav-toggle-btn"
+                  :class="{ active: isPodcastFollowed }"
+                  :aria-pressed="isPodcastFollowed"
+                  @click="toggleFollowPodcast"
+                >
+                  <app-icon :name="isPodcastFollowed ? 'check' : 'heart'" :size="12" />
+                  <span>{{ isPodcastFollowed ? '已关注' : '关注' }}</span>
+                </button>
+              </div>
 
               <h1 class="hero-title">{{ episode.title }}</h1>
 

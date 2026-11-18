@@ -165,6 +165,16 @@
 
 ## 前端设计审查（2026-11-17）
 
+- [/] **FEAT-P2**（2026-11-18）实现免登录本地「我的收听」中心（关注播客 / 收听历史 / JSON 备份恢复 / OPML 导出）与 PC 桌面端全局播控快捷键
+  - **P2-2「我的收听」中心完成内容**：
+    - `public/js/storage.js` 新增 `xyzp_v1_favorites` 播客收藏（提取 `xyzrank` `links` 中的 RSS `xmlUrl`）、富元数据收听进度持久化（保留 `title`、`podcastName`、`pid`、`image`、`enclosureUrl`）、`exportUserDataObject` / `parseAndMergeBackupJson`（按更新时间戳智能合并收听记录与收藏）以及标准 **OPML 2.0** 生成器 `buildOpmlXml`。
+    - 新建 `public/js/components/LibraryDrawer.js` 并接入 `overlayHistory.js` (`"library"`) 与 `app.js` 顶栏书签入口（含 `400px` 以下窄屏紧凑排布防溢出）：包含「关注播客」与「收听历史」双 Tab、一键续播/重播、单条移除/清空历史 5 秒撤销，以及底部 JSON 导出、JSON 导入恢复、OPML 导出。
+    - `PodcastView.js`、`EpisodeView.js` 与 `RankBoard.js` 全面接入关注/取消关注按钮与四榜 `已关注` 标签高亮。
+  - **PC 全局快捷键完成内容**：
+    - `public/js/utils.js` 新增 `shouldIgnoreGlobalHotkey(event)`（自动避让 `INPUT`/`TEXTAREA`/`SELECT`/`contentEditable`、修饰键、IME 输入法组合及按钮/链接上的 `Space`）；`app.js` 监听全局按键支持 `Space`（播放/暂停）、`←`/`→`（-15s/+30s）、`[`/`]`（步进倍速）、`M`（静音切换，同步更新 `PlayerBar.js` 全屏静音按钮与迷你栏提示）、`/`（聚焦榜单搜索框），并在 `AboutDialog.js` 与 `PlayerBar.js` 补充快捷键提示。
+    - `test/frontend.test.js` 新增收藏、RSS 提取、富历史保留、JSON 导入合并冲突消解、OPML XML 转义及全局热键守卫单测。
+  - **当前验证状态**：代码与单测均已落盘复核（`P3` 样式整理按用户要求留待验收后单独实施）；因本会话 `run_command` 绑定于已删除目录 `xyz-podcast/xyz-podcast` 无法运行终端，待在根目录执行 `rm -f src/handlers/download.js && npm test` 与浏览器验收后改为 `[x]`。
+
 - [/] **FEAT-P0-P1**（2026-11-18）一次性完成 P0 稳定性/缓存保护与 P1 核心收听/热榜发现升级
   - **P0 完成内容**：
     - 外链冷启动返回兜底与 404 路由：`app.js` 新增 `smartBack()`、详情页顶栏「热榜」按钮与 `/:pathMatch(.*)*` 404 视图；`EpisodeView.js` / `PodcastView.js` 无站内历史时显示「逛热榜首页」并跳转 `/`，同步补齐详情页结构化骨架节点。
@@ -353,4 +363,5 @@
 | 2026-11-18 | PERF-01 | 固定入口页 5 个 unpkg 脚本版本 | 发布记录、文件路径、HTML 和 4 个测试文件检查通过 | CDN 请求待联网复核 |
 | 2026-11-18 | PERF-02 | 首屏脚本 defer，简介净化与队列拖拽按需加载 | 4 个测试文件及加载顺序、延迟、失败和队列状态模拟通过 | CDN 请求待联网复核 |
 | 2026-11-18 | PERF-03 | 内联微信首屏初始化，合并按需库加载器 | Chromium 首页 JS 18 → 16，CDN 直接 200，主要功能及单测 18/18 通过 | 本地验证 |
-| 2026-11-18 | FEAT-P0-P1 | 完成 P0（深链返回/404、SW修复、D1分类缓存+Edge Cache、深色防闪白、同步超时）与 P1（热评时间戳跳播、睡眠定时、榜单升降/新上榜+频道直跳+已听标记、锁屏进度同步、队列下一首/清已播/清空撤销、音频失效重刷）及新增单测 | 本会话绑定旧 cwd 无法执行命令，代码与测试已完整静态复核 | 在 `/home/projects/_ai-apps/xyz-podcast` 执行 `rm -f src/handlers/download.js && npm test`、本地实测后部署 |
+| 2026-11-18 | FEAT-P0-P1 | 完成 P0（深链返回/404、SW修复、D1分类缓存+Edge Cache、深色防闪白、同步超时）与 P1（热评时间戳跳播、睡眠定时、榜单升降/新上榜+频道直跳+已听标记、锁屏进度同步、队列下一首/清已播/清空撤销、音频失效重刷）及新增单测 | 本会话绑定旧 cwd 无法执行命令，代码与测试已完整静态复核 | 与 `FEAT-P2` 一并在根目录测试验收 |
+| 2026-11-18 | FEAT-P2 | 新增免登录本地「我的收听」抽屉（关注播客、收听历史、JSON 备份恢复、OPML 2.0 导出）、四榜与内页关注联动，以及 PC 全局播控快捷键（`Space` / `←` / `→` / `[` / `]` / `M` / `/`）与单测 | 本会话绑定旧 cwd 无法执行命令，代码与测试已完整静态复核 | 在 `/home/projects/_ai-apps/xyz-podcast` 执行 `rm -f src/handlers/download.js && npm test`、本地验收后部署（`P3` 留待验收后进行） |

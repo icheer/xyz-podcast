@@ -32,6 +32,9 @@ export default {
       void this.$route.fullPath;
       return Boolean(typeof window !== "undefined" && window.history.state?.back);
     },
+    isFollowed() {
+      return this.playerActions.isFavoritePodcast(this.podcast?.pid || this.pid);
+    },
   },
   watch: {
     pid: {
@@ -102,6 +105,15 @@ export default {
         return;
       }
       this.playerActions.enqueueMany(tracks);
+    },
+    toggleFollow() {
+      if (!this.podcast) return;
+      this.playerActions.toggleFavoritePodcast({
+        pid: this.podcast.pid || this.pid,
+        title: this.podcast.title,
+        author: this.podcast.author,
+        image: this.podcast.image,
+      });
     },
     isCurrentPlaying(eid) {
       return this.player.currentEid === eid && this.player.isPlaying;
@@ -180,6 +192,16 @@ export default {
             >
               <app-icon name="play" :size="15" />
               <span>播放最新一集</span>
+            </button>
+            <button
+              type="button"
+              class="btn sm fav-hero-btn"
+              :class="{ 'is-followed': isFollowed }"
+              :aria-pressed="isFollowed"
+              @click="toggleFollow"
+            >
+              <app-icon :name="isFollowed ? 'check' : 'heart'" :size="15" />
+              <span>{{ isFollowed ? '已关注' : '关注播客' }}</span>
             </button>
             <button
               v-if="episodes.length > 0"

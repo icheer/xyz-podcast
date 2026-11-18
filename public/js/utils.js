@@ -372,3 +372,34 @@ export function computeVirtualWindow({
     totalHeight: Math.round(totalHeight),
   };
 }
+
+/**
+ * Determine whether a global PC keyboard shortcut should be suppressed
+ * so native typing, IME composition, browser combos, and button activation stay intact.
+ */
+export function shouldIgnoreGlobalHotkey(event) {
+  if (!event || event.defaultPrevented) return true;
+  if (event.ctrlKey || event.metaKey || event.altKey) return true;
+  if (event.isComposing || event.keyCode === 229) return true;
+
+  const target = event.target;
+  if (!target || typeof target !== "object") return false;
+  if (target.isContentEditable) return true;
+
+  const tag = String(target.tagName || "").toUpperCase();
+  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") {
+    return true;
+  }
+
+  // Space activates focused buttons/links natively — never hijack focused interactive controls
+  if (event.key === " " || event.code === "Space") {
+    if (tag === "BUTTON" || tag === "A" || tag === "SUMMARY") return true;
+    if (typeof target.closest === "function") {
+      if (target.closest('button, a[href], summary, [role="button"], [role="link"]')) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
