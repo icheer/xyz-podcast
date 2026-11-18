@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  computeProgressPercent,
   computeVirtualWindow,
   formatCount,
   formatDurationSeconds,
@@ -61,6 +62,11 @@ test("utils formatting helpers produce expected strings", () => {
     "已听 30% (03:00)"
   );
   assert.equal(formatProgressBadge({ currentTime: 0, duration: 600, finished: true }), "已播完");
+  assert.equal(computeProgressPercent(null, 600), 0);
+  assert.equal(computeProgressPercent({ currentTime: 4, duration: 600, finished: false }), 0);
+  assert.equal(computeProgressPercent({ currentTime: 150, duration: 600, finished: false }), 25);
+  assert.equal(computeProgressPercent({ currentTime: 599, duration: 600, finished: false }), 99.5);
+  assert.equal(computeProgressPercent({ currentTime: 0, duration: 600, finished: true }), 100);
 });
 
 test("parseTimestampToSeconds and injectTimestampButtons convert timestamps safely", () => {

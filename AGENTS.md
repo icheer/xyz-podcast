@@ -331,7 +331,7 @@ npm run deploy               # npx wrangler deploy
   - **PC 桌面端全局快捷键 (`app.js` + `utils.js` + `PlayerBar.js` + `AboutDialog.js`)**：新增 `shouldIgnoreGlobalHotkey` 安全守卫（避让输入框、IME 组合、修饰键与聚焦按钮 `Space`），支持 `Space` 播放/暂停、`←`/`→` -15s/+30s、`[`/`]` 倍速步进、`M` 静音切换（含全屏播控页静音按钮与迷你栏状态提示）、`/` 聚焦榜单搜索框，并在项目介绍弹窗及播控按钮 `title` 中展示快捷键提示。`FEAT-P0-P1` 与 `FEAT-P2` 均已通过用户验收。
 - **最新 P3 样式与代码架构整理（2026-11-18）**：`REFACTOR-P3` 已完成落盘：
   - **`public/css/app.css` 单源化级联重构**：彻底消除多轮迭代追加在尾部的 ~80 处重复选择器覆盖与 5 处分散 `@media (min-width: 768px)`，按职责重组为 11 个单源章节（Design Tokens、Reset & Primitives、Header、About Dialog、Board Toolbar & Skeletons、Mobile Rank Cards、Desktop Rank Table、Detail Pages/Shownotes/Comments、Mini & Full Player、Drawers/Toast/Transitions、Consolidated Breakpoints），100% 保持已验收的视觉表现与优先级。
-  - **跨组件去重与边界收敛**：`utils.js` 抽离 `formatProgressBadge` 统一 `RankBoard` / `PodcastView` / `PlaylistDrawer` / `LibraryDrawer` 四处收听进度标签逻辑；`PlaylistDrawer` 收敛重复撤销定时器并提取抽屉通用头/缩略图类；`api.js` 为前端内存详情缓存增加 `MAX_DETAIL_CACHE = 60` FIFO 淘汰上限。资源版本升至 `app.css?v=31`、`app.js?v=32`，`sw.js` 升至 `v5`。
+  - **跨组件去重、队列背景进度条与边界收敛**：`PlaylistDrawer` 移除易被长播客名截断的行内橙色 `已听 n%` 文本，改用基于 `--listen-pct` 的条目左→右柔和背景色填充（含微弱底轨、1px 前沿描边、当前播放实时推进与已播完中性弱化态，播客名弹性省略且时长固定不丢失）；`utils.js` 抽离 `computeProgressPercent` 与 `formatProgressBadge` 统一四处收听进度逻辑；`api.js` 为前端内存详情缓存增加 `MAX_DETAIL_CACHE = 60` FIFO 淘汰上限。资源版本升至 `app.css?v=32`、`app.js?v=33`，`sw.js` 升至 `v6`。
 - **下一位 Agent / 用户终端的精确动作**：
   1. `cd /home/projects/_ai-apps/xyz-podcast && rm -f src/handlers/download.js && npm test`
   2. `npm run dev` 快速抽检手机/桌面浅深色布局无回归后，将 `CHECKLIST.md` 中 `REFACTOR-P3` 标为 `[x]`。

@@ -1,4 +1,9 @@
-import { formatDurationSeconds, formatProgressBadge, loadSortable } from "../utils.js";
+import {
+  computeProgressPercent,
+  formatDurationSeconds,
+  formatProgressBadge,
+  loadSortable,
+} from "../utils.js";
 import AppIcon from "./AppIcon.js";
 
 export default {
@@ -118,8 +123,51 @@ export default {
         this.sortableInstance = null;
       }
     },
-    progressText(track) {
-      return formatProgressBadge(this.player.progressMap[track.eid], track.duration);
+    isItemFinished(item) {
+      if (item.eid === this.player.currentEid) return false;
+      return Boolean(this.player.progressMap[item.eid]?.finished);
+    },
+    itemProgressPct(item) {
+      if (item.eid === this.player.currentEid) {
+        const cur = Number(this.player.currentTime) || 0;
+        const dur =
+          Number(this.player.duration) ||
+          Number(item.duration) ||
+          Number(this.player.progressMap[item.eid]?.duration) ||
+          0;
+        if (cur > 0 && dur > 0) {
+          return Math.min(100, Math.max(0.5, Number(((cur / dur) * 100).toFixed(1))));
+        }
+      }
+      return computeProgressPercent(this.player.progressMap[item.eid], item.duration);
+    },
+    itemProgressHint(item) {
+      if (item.eid === this.player.currentEid && this.player.currentTime > 0) {
+        return formatProgressBadge(
+          {
+            currentTime: this.player.currentTime,
+            duration: this.player.duration || item.duration,
+            finished: false,
+          },
+          item.duration,
+          { minSeconds: 0 }
+        );
+      }
+      return formatProgressBadge(this.player.progressMap[item.eid], item.duration);
+    },
+    queueItemClasses(item) {
+      const pct = this.itemProgressPct(item);
+      const finished = this.isItemFinished(item);
+      return {
+        active: item.eid === this.player.currentEid,
+        "has-progress": pct > 0 && !finished,
+        "is-finished": finished,
+        "is-complete-fill": pct >= 99.5,
+      };
+    },
+    queueItemStyle(item) {
+      const pct = this.itemProgressPct(item);
+      return pct > 0 ? { "--listen-pct": `${pct}%` } : null;
     },
   },
   template: `
@@ -179,7 +227,8 @@ export default {
             v-for="(item, idx) in player.queue"
             :key="item.eid"
             class="queue-item"
-            :class="{ active: item.eid === player.currentEid }"
+            :class="queueItemClasses(item)"
+            :style="queueItemStyle(item)"
           >
             <span class="drag-handle" :style="{ visibility: sortableInstance ? 'visible' : 'hidden' }" title="拖拽调整顺序">
               <app-icon name="grip-vertical" :size="16" />
@@ -187,12 +236,17 @@ export default {
 
             <img v-cover class="cover-thumb drawer-thumb" :src="item.image" :alt="item.title" />
 
-            <button type="button" class="queue-info" @click="playerActions.playTrack(item)">
+            <button
+              type="button"
+              class="queue-info"
+              :title="itemProgressHint(item) ? item.title + ' · ' + itemProgressHint(item) : item.title"
+              @click="playerActions.playTrack(item)"
+            >
               <div class="queue-title">{{ item.title }}</div>
-              <div class="queue-sub tabular">
-                <span>{{ item.podcastName || '小宇宙播客' }}</span>
-                <span v-if="item.duration"> · {{ formatDurationSeconds(item.duration) }}</span>
-                <span v-if="progressText(item)" class="accent-text"> · {{ progressText(item) }}</span>
+              <div class="queue-sub queue-sub-flex tabular">
+                <span class="queue-pod-name">{{ item.podcastName || '小宇宙播客' }}</span>
+                <span v-if="item.duration" class="queue-dur">· {{ formatDurationSeconds(item.duration) }}</span>
+                <span v-if="isItemFinished(item)" class="queue-done-label">· 已播完</span>
               </div>
             </button>
 

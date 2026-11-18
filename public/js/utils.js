@@ -58,6 +58,23 @@ export function formatDateTime(iso) {
 }
 
 /**
+ * Compute episode listening progress percentage (0 to 100) for visual progress bars.
+ */
+export function computeProgressPercent(
+  entry,
+  fallbackDurationSec = 0,
+  { minSeconds = 5 } = {}
+) {
+  if (!entry) return 0;
+  if (entry.finished) return 100;
+  const cur = Number(entry.currentTime) || 0;
+  if (!(cur > minSeconds)) return 0;
+  const dur = Number(entry.duration) || Number(fallbackDurationSec) || 0;
+  if (!(dur > 0)) return 0;
+  return Math.min(99.5, Math.max(1, Number(((cur / dur) * 100).toFixed(1))));
+}
+
+/**
  * Format saved episode progress into a unified badge label ("已播完", "已听 XX%", etc.).
  */
 export function formatProgressBadge(
