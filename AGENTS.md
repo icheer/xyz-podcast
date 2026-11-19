@@ -10,7 +10,7 @@
 
 - **技术形态**：Cloudflare Workers 全栈单仓库（参考 [icheer/aigc-gallery](https://github.com/icheer/aigc-gallery) 的无前端构建模式）。
 - **数据策略**：
-  1. **首页 4 大榜单**由 Cloudflare Cron 每日 2 个时刻（北京时间 `08:00` 与 `20:00`，即 UTC `00:00` 与 `12:00`）启动同步，通过兼容 Cloudflare Free Plan 的**分批接力状态机**抓取 `xyzrank.com` 全量数据并存入 **Cloudflare D1 (SQLite)**，再由自建 `/api/boards/*` 对外提供搜索、排序与分页服务。
+  1. **首页 4 大榜单**由 Cloudflare Cron 每天北京时间 `08:00`（UTC `00:00`）启动一轮同步，通过兼容 Cloudflare Free Plan 的**分批接力状态机**抓取 `xyzrank.com` 全量数据并存入 **Cloudflare D1 (SQLite)**，再由自建 `/api/boards/*` 对外提供搜索、排序与分页服务。
   2. **播客频道页 & 单集播放页**均内置在本项目前端路由中（保留"去小宇宙官网"外链），所需数据（频道单集列表、单集音频地址、Shownotes、热评列表）采用**浏览器端直连 CORS `fetch` 为主 + 后端可选 `XYZ_RELAY_URL` 转发兜底**的实时按需方案（复用同一份纯函数解析器 `public/js/xyzParser.js`），**不做预取与数据库缓存**。
   3. **音频在线收听**：直接由 `<audio src="https://media.xyzcdn.net/...">` 流式播放；出于版权合规考虑，项目不提供音频文件下载按钮与下载代理接口。
 - **核心收听体验**：全局常驻迷你播放器 + 可展开全屏播控页（切换榜单/逛频道不断播）、向前 30 秒 / 向后 15 秒、倍速调节、循环模式（顺序 / 单曲 / 列表循环）、播放列表与拖拽调序、基于 `localStorage` 的断点续播进度保存与恢复、固定顶栏与榜单虚拟滚动。
@@ -51,7 +51,8 @@ xyz-podcast/
 ├── .dev.vars.example         # 本地密钥模板
 ├── .gitignore                # 忽略 node_modules、.wrangler、.dev.vars、.env
 ├── migrations/
-│   └── 0001_init.sql         # D1 表结构迁移脚本
+│   ├── 0001_init.sql         # D1 初始表结构
+│   └── 0002_rank_composite_keys.sql # 迁移榜单联合主键与索引
 ├── src/
 │   ├── index.js              # Worker 入口：fetch() 路由分发 + scheduled() Cron 入口
 │   ├── db/
@@ -162,10 +163,11 @@ xyz-podcast/
 - 全量 4 个榜单共约 9,132 条（~93 页 `limit=100` 请求）。
 - Cloudflare Workers **Free Plan** 每次触发上限为 **50 次外部 `fetch()` subrequest**、**10ms CPU 时间**（注：D1 查询不计入 50 次外部 `fetch` 限额）。
 - 单次 Cron 无法拉完 93 页，因此采用 **时间窗高频脉冲 + D1 状态机接力**：
-  - `wrangler.toml` 仅配置 **1 个** Cron Trigger：`crons = ["*/2 0,12 * * *"]`（对应北京时间 `08:00–08:58` 与 `20:00–20:58` 每 2 分钟触发一次）。
-  - 每次 `scheduled()` 最多发起 **25~30 次** `fetch()`（为重试预留安全余量，且分批写入 D1 控制单次 CPU 远低于 10ms）。
+  - `wrangler.toml` 配置 `crons = ["*/2 0 * * *"]`，在北京时间 `08:00–08:58` 每 2 分钟触发一次，推进当天的 `YYYYMMDDT00` 同步。
+  - 每次 `scheduled()` 默认最多拉取 **15 页**，为重试预留外部请求额度。
   - 拉取顺序优先小榜单后大榜单：`episodes` (8 页) -> `new-episodes` (1 页) -> `new-podcasts` (2 页) -> `podcasts` (82 页)。
-  - **Tick 1 (`00:00` / `12:00`)** 即可同步完 3 个完整榜单 + 热门播客 Top 1,900；约 4 个 Tick（~6 分钟）完成全部 93 页并将该时段 `sync_runs.status` 置为 `completed`；同小时剩余 Tick 查表见已完成即刻 `return`（0 次外部请求）。
+  - 约 7 次触发（~12 分钟）完成全部 93 页并将该时段 `sync_runs.status` 置为 `completed`。同窗口剩余触发查到已完成后直接返回，外部请求数为 0。
+  - 目前约 9,100 条的规模，每天一轮约消耗 35.8k 行写入。D1 免费写入额度为账户共享的 100k/UTC 日，手动同步和迁移也计入额度。
 
 ### 4.2 原子版本切换（读写隔离）
 - 每次同步生成唯一 `sync_version`（如 `20261117T00`）。
@@ -173,9 +175,10 @@ xyz-podcast/
 - 前端 API 读取 `app_state.active_sync_version` 对应的完整版本；仅当整轮 4 个榜单全部 `completed` 时，更新 `active_sync_version` 并异步/顺带清理早于前 1 个版本的旧数据（保留最近 1~2 个版本防回退失败）。
 - **冷启动兜底**：若 `active_sync_version` 尚未存在（首次部署刚启动第 1 批），允许回退读取最近一条 `sync_runs` 的已入库数据，保证首次部署几分钟内即有数据可看。
 
-### 4.3 D1 表结构要点 (`migrations/0001_init.sql`)
-- `episodes_rank`: `(id PK, sync_version, board, rank, eid, title, podcast_id_raw, podcast_name, logo_url, link, play_count, comment_count, subscription, duration_min, post_time, primary_genre, total_episodes_count, open_rate, interactive_rate, last_release_days)` + 索引 `(sync_version, board, rank)`、`UNIQUE(sync_version, board, eid)`。
-- `podcasts_rank`: `(id PK, sync_version, board, rank, pid, raw_id, name, logo_url, primary_genre, authors_text, track_count, last_release_date, last_release_days, first_episode_time, active_rate, avg_duration_min, avg_play_count, avg_update_freq_hours, avg_comment_count, avg_interact_indicator, avg_open_rate, xyz_url, links_json)` + 索引 `(sync_version, board, rank)`、`UNIQUE(sync_version, board, raw_id)`。
+### 4.3 D1 表结构要点 (`migrations/`)
+- `episodes_rank` 使用 `WITHOUT ROWID` 联合主键 `(sync_version, board, eid)` 和排名索引 `(sync_version, board, rank)`。分类过滤在路径指定的小榜单内扫描。
+- `podcasts_rank` 使用 `WITHOUT ROWID` 联合主键 `(sync_version, board, raw_id)`，配排名索引 `(sync_version, board, rank)` 和分类索引 `(sync_version, board, primary_genre)`。
+- `0002_rank_composite_keys.sql` 在迁移中复制已有榜单数据并换表，保留各版本和对应的趋势基线。升级已有库前按快照体量预留一次性写入额度，部署窗口参见 README。
 - `board_meta`: `(sync_version, board, total, synced_count, median_values_json, updated_at, PRIMARY KEY (sync_version, board))`。
 - `sync_runs`: `(run_id PK, slot, status, current_board, current_offset, pages_fetched, items_written, retry_count, last_error, locked_until, started_at, finished_at)`。
 - `app_state`: `(key PK, value, updated_at)`。
@@ -265,7 +268,7 @@ npm run dev                  # 等价于 npx wrangler dev
 
 # 本地模拟触发 Cron 定时任务（验证分批接力同步）
 npx wrangler dev --test-scheduled
-curl "http://localhost:8787/__scheduled?cron=*/2+0,12+*+*+*"
+curl "http://localhost:8787/__scheduled?cron=*/2+0+*+*+*"
 
 # 运行单元测试（Parser、工具函数、Sync 状态机）
 npm test                     # node --test
@@ -295,7 +298,8 @@ npm run deploy               # npx wrangler deploy
 ## 9. 当前进度与交接快照
 
 - **最后更新**：2026-11-19
-- **D1 免费额度诊断**：`P2-05` 核实榜单正常发布，当前结构稳态两轮同步计约 109.6k 写入/UTC 日。改用业务键组成的 `WITHOUT ROWID` 主键可保留索引和每天两更，本地测得单条插入写入数从 5 降至 3，预计稳态约 73.2k/日，迁移需要留出一次性写入预算。单测 25/25，本轮仅诊断。
+- **D1 每日同步与索引**：`P2-06` 改为北京时间 08:00 一轮，榜单表使用 `WITHOUT ROWID` 联合主键，保留两个排名索引和播客分类索引。按当前规模估算约 35.8k 写入/日。两份共 18,232 行快照迁移实测 53,130 写入，数据与 21 组榜单 API 返回一致，`npm test` 25/25，生产部署待执行。
+- **D1 免费额度诊断**：`P2-05` 核实 11 月 18 日早晚与 19 日晨间榜单正常发布，旧结构稳态两轮同步计约 109.6k 写入/UTC 日，超过账户每日限额。
 - **倍速兼容清理**：`UI-24` 移除退役档位的专用映射，读取设置和导入备份都按现有档位校验。单测 25/25。
 - **播放器倍速**：`UI-23` 新增 0.9x、1.1x、1.2x、1.3x 档位，兼容旧设置与备份。Chromium 实测 320/390/479px 为四列两行、480/1280px 为八列一行，各按钮至少 44×44px。选档、键盘步进、刷新及睡眠定时验证通过，单测 25/25。
 - **本轮设计审查**：2026-11-17 环境限制解除后，已通过 Browser MCP 与 Playwright 完成四榜、频道/单集、播放器/队列、评论和深色频道的手机/桌面/短屏视觉走查。建议见 `DESIGN_REVIEW.md`，截图在 `/tmp/xyz-review/`；仅更新审查文档，未修改产品代码或部署，P7-05/P7-06 状态保持。

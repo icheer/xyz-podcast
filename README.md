@@ -76,7 +76,7 @@ migrations_dir = "migrations"
 
 ### 3. 等待首次榜单同步
 
-部署成功后，先打开 `https://你的域名/api/health` 确认服务和数据库连接正常。**数据库建表成功不代表已有榜单数据**：首次使用需等待北京时间下一次 `08:00` 或 `20:00` 的定时同步，通常再过约 12 分钟完成全量发布。接近同步窗口末尾才部署时，若这一轮未完成，下一窗口会发起新一轮同步。
+部署成功后，先打开 `https://你的域名/api/health` 确认服务和数据库连接正常。首次定时同步在北京时间下一次 `08:00` 开始，通常约 12 分钟完成并发布四个榜单。若在同步窗口末尾部署且本轮未完成，次日 `08:00` 会发起新一轮同步。
 
 Cron 已写在 `wrangler.toml` 中，部署时一并配置，无需自己每天操作。初次设置或变更 Cron 可能需要最多 15 分钟传播，参见 [Cron Triggers](https://developers.cloudflare.com/workers/configuration/cron-triggers/)。希望立即灌入数据的进阶用户，也可配置下面的 `ADMIN_KEY` 后调用管理 API。
 
@@ -90,6 +90,8 @@ Cron 已写在 `wrangler.toml` 中，部署时一并配置，无需自己每天�
 4. 向该分支提交一次变更，在 Builds 中确认该次提交部署成功，再检查原网址、`/api/health`、数据库绑定和定时任务。后续更新直接推送代码即可。
 
 域名、现有数据库和数据可继续使用；仓库配置需与现有资源一致，已有 `ADMIN_KEY` 等运行时密钥也应在设置中核对。官方步骤见 [Connect an existing Worker](https://developers.cloudflare.com/workers/ci-cd/builds/#connect-an-existing-worker)。
+
+**升级已灌入榜单的 D1 数据库。** `0002_rank_composite_keys.sql` 会复制已有快照并重建索引，一次性写入约为 `2 × 单集表行数 + 3 × 播客表行数`，当前两份快照约需 53.1k 次写入。如果账户当日剩余额度不足，可先暂停旧 Cron，在北京时间 `08:00` 额度重置后部署，部署会启用新的每日同步计划。新建的空库可直接部署。[D1 免费额度与重置时间](https://developers.cloudflare.com/d1/platform/pricing/)
 
 ### 可选：管理员密钥与抓取兜底
 
@@ -105,7 +107,7 @@ Cron 已写在 `wrangler.toml` 中，部署时一并配置，无需自己每天�
 
 ### 确认定时同步是否完成
 
-在浏览器打开 `/api/boards/meta`。北京时间 `20:00` 这一轮对应当天 `YYYYMMDDT12`，`08:00` 对应 `YYYYMMDDT00`；当 `syncVersion` 为目标版本、`isComplete: true`，且四榜 `syncedCount` 都等于 `total`，即表示完整发布成功。已有完整旧版本时，这里仍展示旧版，不能只看更新时间来判断新一轮是否完成。
+在浏览器打开 `/api/boards/meta`。每天北京时间 `08:00` 启动的同步对应当天 `YYYYMMDDT00`。当 `syncVersion` 为目标版本、`isComplete: true`，且四榜 `syncedCount` 都等于 `total`，即表示完整发布成功。同步期间有完整旧版本时，这里继续展示旧版。
 
 想看同步中的进度或失败原因，可进入 **D1 → 该数据库 → Console** 执行以下只读 SQL，无需本地终端：
 
@@ -152,7 +154,7 @@ flowchart LR
     U -->|"CORS 直连解析 __NEXT_DATA__"| XYZ["www.xiaoyuzhoufm.com"]
     U -.->|"可选兜底 /api/xiaoyuzhou/*"| CF
     U -->|"&lt;audio&gt; 流媒体 Range 播放"| CDN["media.xyzcdn.net"]
-    CRON["Cron Trigger (*/2 0,12 * * *)"] -->|"分批接力状态机 (<= 30 req/批)"| RANK["xyzrank.com API"]
+    CRON["Cron Trigger (*/2 0 * * *)"] -->|"分批接力状态机 (15 页/批)"| RANK["xyzrank.com API"]
     CRON -->|"UPSERT + 原子切换版本"| D1
 ```
 
@@ -160,7 +162,8 @@ flowchart LR
 
 1. **兼容 Cloudflare Free Plan 的分批接力同步 (`src/db/sync.js`)**
    - `xyzrank.com` 4 个接口单页上限为 100 条（全量约 9,100+ 条，合计 ~93 页），超出 Workers Free Plan 单次 50 次外部请求上限。
-   - 采用单一 Cron 窗口 `*/2 0,12 * * *`（北京时间 `08:00` 与 `20:00` 起每 2 分钟触发），配合 D1 `sync_runs` 状态机每批仅拉取 15 页，约 12 分钟完成全量同步后原子切换 `active_sync_version`，同小时其余 Tick 零外部请求直接退出。
+   - 采用每日一次的 Cron 窗口 `*/2 0 * * *`（北京时间 `08:00–08:58` 每 2 分钟触发），配合 D1 `sync_runs` 状态机每批仅拉取 15 页，约 12 分钟完成全量同步后原子切换 `active_sync_version`，同窗口剩余触发直接退出。
+   - 榜单表使用 `WITHOUT ROWID` 联合主键，保留排名索引和播客分类索引。以约 9,100 条的规模估算，每天同步及清理旧快照约消耗 35.8k 行写入。
 2. **浏览器直连 CORS 抓取 + 共享解析器 (`public/js/xyzParser.js`)**
    - `www.xiaoyuzhoufm.com` 会拒绝携带 Cloudflare Workers 自动注入的 `CF-Worker` 请求头的出站请求（`403`），但对浏览器端简单 `GET` 请求动态回显 `Access-Control-Allow-Origin`。
    - 前端直接请求小宇宙官网并由与后端共享的 `public/js/xyzParser.js` 解析 `__NEXT_DATA__`，同时在后端保留 `/api/xiaoyuzhou/*`（支持可选 `XYZ_RELAY_URL` 转发）作为兜底通道。
@@ -178,7 +181,8 @@ xyz-podcast/
 ├── wrangler.toml             # Workers、D1、Static Assets 与 Cron 配置
 ├── .dev.vars.example         # 本地密钥模板
 ├── migrations/
-│   └── 0001_init.sql         # D1 初始化建表迁移脚本
+│   ├── 0001_init.sql         # D1 初始表结构
+│   └── 0002_rank_composite_keys.sql # 迁移榜单联合主键与索引
 ├── src/
 │   ├── index.js              # Worker fetch() 与 scheduled() 入口
 │   ├── db/
@@ -247,7 +251,7 @@ done
 或测试 Cron 调度入口（需使用 `npm run dev:scheduled` 启动）：
 
 ```bash
-curl "http://127.0.0.1:8787/__scheduled?cron=*/2+0,12+*+*+*"
+curl "http://127.0.0.1:8787/__scheduled?cron=*/2+0+*+*+*"
 ```
 
 ### 4. 运行单元测试
