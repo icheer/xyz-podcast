@@ -57,6 +57,9 @@
     - `GET /api/boards/meta` 返回当前 `syncVersion`、各榜单总数/同步时间及可选分类列表（`primary_genre` 去重）。
     - `GET /api/boards/:board` 支持 `offset`、`limit` (`<= 100`)、`q`（关键词匹配标题/播客名/主播）、`genre`、`sort`（严格白名单映射 SQL 列）、`dir` (`asc|desc`)，返回 `{ board, items, total, offset, limit, medianValues, syncVersion, updatedAt }`。
   - *验证命令*：`wrangler dev` 实测 `meta` 与 4 榜单分页、关键词搜索（`q=AI` -> 43条）、分类过滤（`犯罪纪实` -> 31条）与排序均正确。
+- [x] **P2-05** 排查 D1 免费套餐每日写入超限，验证保留免费套餐的方案。
+  - 线上只读核实 11 月 18 日两轮各同步 9,121 条，11 月 19 日晨间同步 9,111 条并发布。D1 Insights 与本地 D1 验证每条榜单 `UPSERT` 插入计 5 次写入，清理每条旧记录计 1 次。按稳态每天两轮估算约 109.6k 写入，超过账户每天 100k 的限额。限额在北京时间 08:00 重置。
+  - 本地验证榜单表改用业务键组成的 `WITHOUT ROWID` 主键，保留排名和分类索引，预计两轮约 73.2k 写入。用缩小样本运行接力同步并核对 16 组榜单 API 返回，结果一致。搬迁两份快照并重建索引另需约 54.7k 写入，迁移当日应单独预留额度。`npm test` 25/25。本次仅记录诊断，线上数据库只读查询。
 
 ---
 
