@@ -15,4 +15,4 @@ database_id = "224bbab0-b5e7-4547-9735-9038d63b8f53"
 migrations_dir = "migrations"
 
 [triggers]
-crons = ["*/2 0 * * *"]
+crons = ["0-30/2 0 * * *"]
