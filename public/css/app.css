@@ -2655,10 +2655,12 @@ button.queue-info {
 
   .brand-title {
     font-size: 14px;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .header-actions {
-    gap: 0;
+    gap: 8px;
   }
 
   .header-actions [title="安装桌面应用"] {
@@ -2689,6 +2691,15 @@ button.queue-info {
 }
 
 @media (max-width: 359px) {
+  .header-top {
+    gap: 6px;
+    margin-inline: -4px;
+  }
+
+  .header-actions {
+    gap: 6px;
+  }
+
   .episode-stats {
     gap: 3px;
     font-size: 10.5px;
