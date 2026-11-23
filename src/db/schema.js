@@ -1,6 +1,6 @@
 import { safeJsonParse } from "../utils/http.js";
 
-const ACTIVE_VERSION_KEY = "active_sync_version";
+export const ACTIVE_VERSION_KEY = "active_sync_version";
 const PREV_VERSION_KEY = "prev_sync_version";
 const GENRES_KEY_PREFIX = "genres:";
 
@@ -80,21 +80,6 @@ export async function getPreviousSyncVersion(db, currentSyncVersion) {
 }
 
 /**
- * Save the previous active sync_version when activating a new version.
- */
-export async function setPreviousSyncVersion(db, prevVersion, nowIso = new Date().toISOString()) {
-  if (!prevVersion) return;
-  await setAppState(db, PREV_VERSION_KEY, prevVersion, nowIso);
-}
-
-/**
- * Atomically switch active_sync_version after a full sync run completes.
- */
-export async function activateSyncVersion(db, syncVersion, nowIso = new Date().toISOString()) {
-  await setAppState(db, ACTIVE_VERSION_KEY, syncVersion, nowIso);
-}
-
-/**
  * Read precomputed board genre counts for a sync_version from app_state.
  */
 export async function getCachedBoardGenres(db, syncVersion) {
@@ -106,38 +91,41 @@ export async function getCachedBoardGenres(db, syncVersion) {
 }
 
 /**
+ * The grouped reads behind the genre lists of a sync version.
+ */
+export function boardGenreStatements(db, syncVersion) {
+  const sql = (table) =>
+    `SELECT board, primary_genre AS genre, COUNT(*) AS count
+     FROM ${table}
+     WHERE sync_version = ?1 AND primary_genre != ''
+     GROUP BY board, primary_genre
+     ORDER BY count DESC`;
+  return [
+    db.prepare(sql("episodes_rank")).bind(syncVersion),
+    db.prepare(sql("podcasts_rank")).bind(syncVersion),
+  ];
+}
+
+/**
+ * Merge the results of `boardGenreStatements` into `{ board: [{ genre, count }] }`.
+ */
+export function collectBoardGenres(results) {
+  const genresByBoard = {};
+  for (const result of results) {
+    for (const row of result?.results || []) {
+      if (!genresByBoard[row.board]) genresByBoard[row.board] = [];
+      genresByBoard[row.board].push({ genre: row.genre, count: row.count });
+    }
+  }
+  return genresByBoard;
+}
+
+/**
  * Aggregate genre counts across episode & podcast rank tables and optionally persist in app_state.
  */
 export async function computeBoardGenres(db, syncVersion, { persist = false, nowIso = new Date().toISOString() } = {}) {
   if (!syncVersion) return {};
-  const [epGenresRows, podGenresRows] = await Promise.all([
-    db
-      .prepare(
-        `SELECT board, primary_genre AS genre, COUNT(*) AS count
-         FROM episodes_rank
-         WHERE sync_version = ?1 AND primary_genre != ''
-         GROUP BY board, primary_genre
-         ORDER BY count DESC`
-      )
-      .bind(syncVersion)
-      .all(),
-    db
-      .prepare(
-        `SELECT board, primary_genre AS genre, COUNT(*) AS count
-         FROM podcasts_rank
-         WHERE sync_version = ?1 AND primary_genre != ''
-         GROUP BY board, primary_genre
-         ORDER BY count DESC`
-      )
-      .bind(syncVersion)
-      .all(),
-  ]);
-
-  const genresByBoard = {};
-  for (const row of [...(epGenresRows?.results || []), ...(podGenresRows?.results || [])]) {
-    if (!genresByBoard[row.board]) genresByBoard[row.board] = [];
-    genresByBoard[row.board].push({ genre: row.genre, count: row.count });
-  }
+  const genresByBoard = collectBoardGenres(await db.batch(boardGenreStatements(db, syncVersion)));
 
   if (persist) {
     await setAppState(db, `${GENRES_KEY_PREFIX}${syncVersion}`, JSON.stringify(genresByBoard), nowIso);
@@ -146,36 +134,44 @@ export async function computeBoardGenres(db, syncVersion, { persist = false, now
 }
 
 /**
- * Execute D1 prepared statements in chunks to keep each batch call bounded.
+ * Statements that publish a completed run: the genre cache, the previous and the
+ * active version, then the removal of the superseded versions. Each one only acts
+ * once the run row says `completed`, so a run that lost its lock can neither
+ * publish nor delete anything, and the switch-over is one transaction.
  */
-export async function batchExecute(db, statements, chunkSize = 50) {
-  for (let i = 0; i < statements.length; i += chunkSize) {
-    const chunk = statements.slice(i, i + chunkSize);
-    if (chunk.length > 0) {
-      await db.batch(chunk);
-    }
+export function publishRunStatements(db, runId, { genresJson = null, prevActiveVersion = null, nowIso } = {}) {
+  const stateWrites = [];
+  // Without a computed cache the meta endpoint keeps computing the genres on demand.
+  if (genresJson) stateWrites.push([`${GENRES_KEY_PREFIX}${runId}`, genresJson]);
+  if (prevActiveVersion && prevActiveVersion !== runId) {
+    stateWrites.push([PREV_VERSION_KEY, prevActiveVersion]);
   }
-}
+  stateWrites.push([ACTIVE_VERSION_KEY, runId]);
 
-/**
- * Remove stale rank rows and cached genre maps older than the kept versions.
- */
-export async function cleanupOldSyncVersions(db, keepVersions = []) {
-  const keep = [...new Set(keepVersions.filter(Boolean))];
-  if (keep.length === 0) return;
-
-  const placeholders = keep.map((_, idx) => `?${idx + 1}`).join(", ");
-  const genreKeys = keep.map((v) => `${GENRES_KEY_PREFIX}${v}`);
-  const genrePlaceholders = genreKeys.map((_, idx) => `?${idx + 1}`).join(", ");
-
-  await db.batch([
-    db.prepare(`DELETE FROM episodes_rank WHERE sync_version NOT IN (${placeholders})`).bind(...keep),
-    db.prepare(`DELETE FROM podcasts_rank WHERE sync_version NOT IN (${placeholders})`).bind(...keep),
-    db.prepare(`DELETE FROM board_meta WHERE sync_version NOT IN (${placeholders})`).bind(...keep),
+  const statements = stateWrites.map(([key, value]) =>
     db
       .prepare(
-        `DELETE FROM app_state WHERE key LIKE '${GENRES_KEY_PREFIX}%' AND key NOT IN (${genrePlaceholders})`
+        `INSERT INTO app_state (key, value, updated_at)
+         SELECT ?1, ?2, ?3 FROM sync_runs WHERE run_id = ?4 AND status = 'completed'
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`
       )
-      .bind(...genreKeys),
-  ]);
+      .bind(key, value, nowIso, runId)
+  );
+
+  // The keys are module constants, never user input.
+  const kept = `SELECT value FROM app_state WHERE key IN ('${ACTIVE_VERSION_KEY}', '${PREV_VERSION_KEY}')`;
+  const published = `EXISTS (SELECT 1 FROM app_state WHERE key = '${ACTIVE_VERSION_KEY}' AND value = ?1)`;
+  const keptGenreKeys = `SELECT '${GENRES_KEY_PREFIX}' || value FROM app_state WHERE key IN ('${ACTIVE_VERSION_KEY}', '${PREV_VERSION_KEY}')`;
+  statements.push(
+    db.prepare(`DELETE FROM episodes_rank WHERE sync_version NOT IN (${kept}) AND ${published}`).bind(runId),
+    db.prepare(`DELETE FROM podcasts_rank WHERE sync_version NOT IN (${kept}) AND ${published}`).bind(runId),
+    db.prepare(`DELETE FROM board_meta WHERE sync_version NOT IN (${kept}) AND ${published}`).bind(runId),
+    db
+      .prepare(
+        `DELETE FROM app_state
+          WHERE key LIKE '${GENRES_KEY_PREFIX}%' AND key NOT IN (${keptGenreKeys}) AND ${published}`
+      )
+      .bind(runId)
+  );
+  return statements;
 }

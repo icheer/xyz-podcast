@@ -1,10 +1,8 @@
 import {
-  activateSyncVersion,
-  batchExecute,
-  cleanupOldSyncVersions,
-  computeBoardGenres,
-  getActiveSyncVersion,
-  setPreviousSyncVersion,
+  ACTIVE_VERSION_KEY,
+  boardGenreStatements,
+  collectBoardGenres,
+  publishRunStatements,
 } from "./schema.js";
 import { safeJsonParse } from "../utils/http.js";
 
@@ -31,7 +29,15 @@ export const BOARD_CONFIG = {
 
 export const PAGE_LIMIT = 100;
 export const DEFAULT_MAX_PAGES_PER_BATCH = 15;
-const MAX_LOCK_MS = 90_000;
+/**
+ * Most pages one invocation may fetch. A page costs one upstream request and one
+ * D1 query, the Free plan allows 50 of each per invocation, and starting the run,
+ * publishing the version and recording a failure take a few more.
+ */
+export const MAX_PAGES_PER_INVOCATION = 35;
+// One page is a 12s upstream timeout plus one D1 batch at most, so a lock that has
+// not been refreshed for this long belongs to an invocation that is gone.
+const LOCK_MS = 90_000;
 const MAX_RETRIES = 10;
 
 const XYZ_HEADERS = {
@@ -313,13 +319,49 @@ async function fetchBoardPage(fetchFn, board, offset, limit = PAGE_LIMIT, timeou
   }
 }
 
+function buildBoardMetaStmt(db, { runId, board, total, syncedCount, medianJson, nowIso }) {
+  return db
+    .prepare(
+      `INSERT INTO board_meta (sync_version, board, total, synced_count, median_values_json, updated_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+       ON CONFLICT(sync_version, board) DO UPDATE SET
+         total = excluded.total,
+         synced_count = excluded.synced_count,
+         median_values_json = CASE
+           WHEN excluded.median_values_json = '{}' THEN board_meta.median_values_json
+           ELSE excluded.median_values_json
+         END,
+         updated_at = excluded.updated_at`
+    )
+    .bind(runId, board, total, syncedCount, medianJson, nowIso);
+}
+
+/**
+ * Save where the run has got to. It is the last statement of the batch that
+ * writes a page, so it only applies while the run is still where this
+ * invocation last saw it: one that was taken over in the meantime stops here
+ * instead of moving the cursor back.
+ */
+function buildCursorStmt(db, { runId, board, offset, boardTotalsJson, pages, items, lockUntil, expectedPages }) {
+  return db
+    .prepare(
+      `UPDATE sync_runs
+        SET status = 'running', current_board = ?3, current_offset = ?4, board_totals_json = ?5,
+            pages_fetched = ?6, items_written = ?7, retry_count = 0, last_error = NULL, locked_until = ?2
+        WHERE run_id = ?1 AND pages_fetched = ?8`
+    )
+    .bind(runId, lockUntil, board, offset, boardTotalsJson, pages, items, expectedPages);
+}
+
 /**
  * Execute one Free-Plan-safe batch of the relay sync state machine.
- * Never makes more than `maxPages` external fetch() requests in a single invocation.
+ * Never makes more than `maxPages` external fetch() requests in a single invocation,
+ * and spends one D1 query per page plus a fixed handful for the rest.
  */
 export async function runSyncBatch(db, options = {}) {
   const {
     now = new Date(),
+    clock = () => new Date(),
     fetchFn = fetch,
     maxPages = DEFAULT_MAX_PAGES_PER_BATCH,
     force = false,
@@ -327,188 +369,211 @@ export async function runSyncBatch(db, options = {}) {
     runIdOverride = null,
   } = options;
 
-  const safeMaxPages = Math.max(1, Math.min(35, Number(maxPages) || DEFAULT_MAX_PAGES_PER_BATCH));
+  const safeMaxPages = Math.max(
+    1,
+    Math.min(MAX_PAGES_PER_INVOCATION, Number(maxPages) || DEFAULT_MAX_PAGES_PER_BATCH)
+  );
   const nowMs = now.getTime();
   const nowIso = now.toISOString();
   const key = computeSyncRunKey(now);
   const runId = runIdOverride || (force ? `${key.runId}-m${nowMs}` : key.runId);
   const slot = slotOverride || (force ? "manual" : key.slot);
 
-  let run = await db
-    .prepare("SELECT * FROM sync_runs WHERE run_id = ?1")
-    .bind(runId)
-    .first();
-
-  if (!run) {
-    await db
-      .prepare(
-        `INSERT INTO sync_runs (
-          run_id, slot, status, current_board, current_offset, board_totals_json,
-          pages_fetched, items_written, retry_count, last_error, locked_until, started_at
-        ) VALUES (?1, ?2, 'running', ?3, 0, '{}', 0, 0, 0, NULL, ?4, ?5)`
-      )
-      .bind(runId, slot, BOARD_ORDER[0], nowMs + MAX_LOCK_MS, nowIso)
-      .run();
-    run = await db.prepare("SELECT * FROM sync_runs WHERE run_id = ?1").bind(runId).first();
-  } else {
-    if (run.status === "completed") {
-      return { skipped: true, reason: "already_completed", run, done: true };
-    }
-    if (run.status === "failed" && !force) {
-      return { skipped: true, reason: "max_retries_exceeded", run, done: false };
-    }
-    if (run.locked_until && Number(run.locked_until) > nowMs) {
-      return { skipped: true, reason: "locked", run, done: false };
-    }
-    await db
-      .prepare(
-        "UPDATE sync_runs SET status = 'running', locked_until = ?2 WHERE run_id = ?1"
-      )
-      .bind(runId, nowMs + MAX_LOCK_MS)
-      .run();
+  const run = await db.prepare("SELECT * FROM sync_runs WHERE run_id = ?1").bind(runId).first();
+  if (run?.status === "completed") {
+    return { skipped: true, reason: "already_completed", run, done: true };
+  }
+  if (run?.status === "failed" && !force) {
+    return { skipped: true, reason: "max_retries_exceeded", run, done: false };
   }
 
-  let currentBoard = run.current_board || BOARD_ORDER[0];
-  let currentOffset = Number(run.current_offset) || 0;
-  let pagesFetchedTotal = Number(run.pages_fetched) || 0;
-  let itemsWrittenTotal = Number(run.items_written) || 0;
-  let retryCount = Number(run.retry_count) || 0;
-  const boardTotals = safeJsonParse(run.board_totals_json, {});
+  // Taking the lock is one conditional statement, so two invocations that start
+  // together cannot both get it. `changes` tells which one did.
+  const lockUntil = clock().getTime() + LOCK_MS;
+  const acquired = run
+    ? await db
+        .prepare(
+          `UPDATE sync_runs SET status = 'running', locked_until = ?2
+           WHERE run_id = ?1 AND status != 'completed' AND locked_until <= ?3`
+        )
+        .bind(runId, lockUntil, lockUntil - LOCK_MS)
+        .run()
+    : await db
+        .prepare(
+          `INSERT OR IGNORE INTO sync_runs (
+            run_id, slot, status, current_board, current_offset, board_totals_json,
+            pages_fetched, items_written, retry_count, last_error, locked_until, started_at
+          ) VALUES (?1, ?2, 'running', ?3, 0, '{}', 0, 0, 0, NULL, ?4, ?5)`
+        )
+        .bind(runId, slot, BOARD_ORDER[0], lockUntil, nowIso)
+        .run();
+  if (Number(acquired?.meta?.changes) !== 1) {
+    // The row read above usually already showed the lock taken; it is read again
+    // only when it did not, to tell a lost race from a run completed meanwhile.
+    const wasLocked = Boolean(run) && Number(run.locked_until) > lockUntil - LOCK_MS;
+    const current = wasLocked ? run : await db.prepare("SELECT * FROM sync_runs WHERE run_id = ?1").bind(runId).first();
+    if (current?.status === "completed") {
+      return { skipped: true, reason: "already_completed", run: current, done: true };
+    }
+    return { skipped: true, reason: "locked", run: current, done: false };
+  }
+
+  let currentBoard = run?.current_board || BOARD_ORDER[0];
+  let currentOffset = Number(run?.current_offset) || 0;
+  let pagesFetchedTotal = Number(run?.pages_fetched) || 0;
+  let itemsWrittenTotal = Number(run?.items_written) || 0;
+  let retryCount = Number(run?.retry_count) || 0;
+  const boardTotals = safeJsonParse(run?.board_totals_json, {}) || {};
 
   let batchPages = 0;
   let batchItems = 0;
   let completedAll = false;
+  // The lock value this invocation last wrote; only the invocation that holds it may record a failure.
+  let myLockUntil = lockUntil;
 
   try {
     while (batchPages < safeMaxPages && currentBoard) {
       const cfg = BOARD_CONFIG[currentBoard];
       const data = await fetchBoardPage(fetchFn, currentBoard, currentOffset, PAGE_LIMIT);
-      batchPages += 1;
-      pagesFetchedTotal += 1;
-
       const items = data.items || [];
       const total = Number.isFinite(Number(data.total)) ? Number(data.total) : currentOffset + items.length;
-      const stmts = items.map((item) =>
-        cfg.type === "episode"
-          ? buildEpisodeUpsertStmt(db, normalizeEpisodeItem(item, runId, currentBoard))
-          : buildPodcastUpsertStmt(db, normalizePodcastItem(item, runId, currentBoard))
-      );
-
-      if (stmts.length > 0) {
-        await batchExecute(db, stmts, 50);
-        batchItems += stmts.length;
-        itemsWrittenTotal += stmts.length;
-      }
-
       const nextOffset = currentOffset + items.length;
       const boardDone = items.length === 0 || nextOffset >= total;
+      const nextBoard = boardDone ? nextBoardAfter(currentBoard) : currentBoard;
+      completedAll = boardDone && !nextBoard;
       boardTotals[currentBoard] = {
         total,
         syncedCount: boardDone ? total : nextOffset,
       };
 
+      // Every page is one D1 batch: its rows, the board totals and the new cursor
+      // commit together, so a failed page is retried as a whole and a page that
+      // was fetched is never fetched again because a later one failed. The batch
+      // also refreshes the lock, and lets go of it on the last page of the batch.
+      const lastPageOfBatch = batchPages + 1 >= safeMaxPages;
+      const pageLockUntil = clock().getTime() + LOCK_MS;
+      const keepLock = completedAll || !lastPageOfBatch;
       const medianJson = data.medianValues ? JSON.stringify(data.medianValues) : "{}";
-      await db
-        .prepare(
-          `INSERT INTO board_meta (sync_version, board, total, synced_count, median_values_json, updated_at)
-           VALUES (?1, ?2, ?3, ?4, ?5, ?6)
-           ON CONFLICT(sync_version, board) DO UPDATE SET
-             total = excluded.total,
-             synced_count = excluded.synced_count,
-             median_values_json = CASE
-               WHEN excluded.median_values_json = '{}' THEN board_meta.median_values_json
-               ELSE excluded.median_values_json
-             END,
-             updated_at = excluded.updated_at`
-        )
-        .bind(runId, currentBoard, total, nextOffset, medianJson, nowIso)
-        .run();
-
-      if (boardDone) {
-        const next = nextBoardAfter(currentBoard);
-        if (!next) {
-          currentBoard = null;
-          currentOffset = 0;
-          completedAll = true;
-          break;
-        }
-        currentBoard = next;
-        currentOffset = 0;
-      } else {
-        currentOffset = nextOffset;
+      const stmts = items.map((item) =>
+        cfg.type === "episode"
+          ? buildEpisodeUpsertStmt(db, normalizeEpisodeItem(item, runId, currentBoard))
+          : buildPodcastUpsertStmt(db, normalizePodcastItem(item, runId, currentBoard))
+      );
+      stmts.push(
+        buildBoardMetaStmt(db, {
+          runId,
+          board: currentBoard,
+          total,
+          syncedCount: nextOffset,
+          medianJson,
+          nowIso: new Date(clock().getTime()).toISOString(),
+        }),
+        buildCursorStmt(db, {
+          runId,
+          board: nextBoard || currentBoard,
+          // The last page of the last board leaves the cursor at its end, so a
+          // switch-over that fails is retried with one request instead of a board.
+          offset: boardDone && !completedAll ? 0 : nextOffset,
+          boardTotalsJson: JSON.stringify(boardTotals),
+          pages: pagesFetchedTotal + 1,
+          items: itemsWrittenTotal + items.length,
+          lockUntil: keepLock ? pageLockUntil : 0,
+          expectedPages: pagesFetchedTotal,
+        })
+      );
+      const results = await db.batch(stmts);
+      if (Number(results[results.length - 1]?.meta?.changes) !== 1) {
+        // The lock expired and another invocation moved the run on. Its cursor
+        // stands; the rows written above are the same ones it writes.
+        const current = await db.prepare("SELECT * FROM sync_runs WHERE run_id = ?1").bind(runId).first();
+        return { skipped: true, reason: "taken_over", run: current, done: false };
       }
+      // A batch that rolled back did not write this lock value either.
+      if (keepLock) myLockUntil = pageLockUntil;
+
+      batchPages += 1;
+      batchItems += items.length;
+      pagesFetchedTotal += 1;
+      itemsWrittenTotal += items.length;
+      currentBoard = nextBoard;
+      currentOffset = boardDone ? 0 : nextOffset;
     }
 
     if (completedAll) {
-      const prevActive = await getActiveSyncVersion(db);
-      await computeBoardGenres(db, runId, { persist: true, nowIso }).catch(() => {});
-      await db
-        .prepare(
-          `UPDATE sync_runs
-           SET status = 'completed', current_board = 'done', current_offset = 0,
-               board_totals_json = ?2, pages_fetched = ?3, items_written = ?4,
-               last_error = NULL, locked_until = 0, finished_at = ?5
-           WHERE run_id = ?1`
-        )
-        .bind(runId, JSON.stringify(boardTotals), pagesFetchedTotal, itemsWrittenTotal, nowIso)
-        .run();
-      if (prevActive && prevActive !== runId) {
-        await setPreviousSyncVersion(db, prevActive, nowIso);
+      const finishedIso = new Date(clock().getTime()).toISOString();
+      let prevActive = null;
+      let genresJson = null;
+      try {
+        const [activeRow, ...genreResults] = await db.batch([
+          db.prepare("SELECT value FROM app_state WHERE key = ?1").bind(ACTIVE_VERSION_KEY),
+          ...boardGenreStatements(db, runId),
+        ]);
+        prevActive = activeRow?.results?.[0]?.value || null;
+        genresJson = JSON.stringify(collectBoardGenres(genreResults));
+      } catch {
+        // The genre cache is optional (the meta endpoint recomputes it); the
+        // previous active version is not.
+        prevActive =
+          (await db.prepare("SELECT value FROM app_state WHERE key = ?1").bind(ACTIVE_VERSION_KEY).first())
+            ?.value || null;
       }
-      await activateSyncVersion(db, runId, nowIso);
-      await cleanupOldSyncVersions(db, [runId, prevActive]);
-    } else {
-      await db
-        .prepare(
-          `UPDATE sync_runs
-           SET status = 'running', current_board = ?2, current_offset = ?3,
-               board_totals_json = ?4, pages_fetched = ?5, items_written = ?6,
-               last_error = NULL, locked_until = 0
-           WHERE run_id = ?1`
-        )
-        .bind(
-          runId,
-          currentBoard || BOARD_ORDER[0],
-          currentOffset,
-          JSON.stringify(boardTotals),
-          pagesFetchedTotal,
-          itemsWrittenTotal
-        )
-        .run();
-    }
 
-    const updatedRun = await db.prepare("SELECT * FROM sync_runs WHERE run_id = ?1").bind(runId).first();
-    return {
-      skipped: false,
-      done: completedAll,
-      batchPages,
-      batchItems,
-      run: updatedRun,
-    };
+      // Marking the run completed and switching to it commit together, with
+      // the removal of the versions it supersedes. Everything in the batch is
+      // conditional on the run being completed, so it only takes effect if this
+      // invocation still holds the lock.
+      const published = await db.batch([
+        db
+          .prepare(
+            `UPDATE sync_runs
+              SET status = 'completed', current_board = 'done', current_offset = 0,
+                  board_totals_json = ?2, pages_fetched = ?3, items_written = ?4,
+                  retry_count = 0, last_error = NULL, locked_until = 0, finished_at = ?5
+              WHERE run_id = ?1 AND locked_until = ?6`
+          )
+          .bind(
+            runId,
+            JSON.stringify(boardTotals),
+            pagesFetchedTotal,
+            itemsWrittenTotal,
+            finishedIso,
+            myLockUntil
+          ),
+        ...publishRunStatements(db, runId, {
+          genresJson,
+          prevActiveVersion: prevActive,
+          nowIso: finishedIso,
+        }),
+      ]);
+      if (Number(published[0]?.meta?.changes) !== 1) {
+        const current = await db.prepare("SELECT * FROM sync_runs WHERE run_id = ?1").bind(runId).first();
+        return { skipped: true, reason: "taken_over", run: current, done: false };
+      }
+    }
   } catch (err) {
     retryCount += 1;
     const status = retryCount >= MAX_RETRIES ? "failed" : "running";
+    // The cursor was saved with the last page that made it, so only the failure
+    // itself is recorded, and only while this invocation still holds the lock.
     await db
       .prepare(
-        `UPDATE sync_runs
-         SET status = ?2, current_board = ?3, current_offset = ?4,
-             board_totals_json = ?5, pages_fetched = ?6, items_written = ?7,
-             retry_count = ?8, last_error = ?9, locked_until = 0
-         WHERE run_id = ?1`
+        `UPDATE sync_runs SET status = ?2, retry_count = ?3, last_error = ?4, locked_until = 0
+          WHERE run_id = ?1 AND locked_until = ?5`
       )
-      .bind(
-        runId,
-        status,
-        currentBoard || BOARD_ORDER[0],
-        currentOffset,
-        JSON.stringify(boardTotals),
-        pagesFetchedTotal,
-        itemsWrittenTotal,
-        retryCount,
-        err?.message || String(err)
-      )
-      .run();
-
+      .bind(runId, status, retryCount, err?.message || String(err), myLockUntil)
+      .run()
+      .catch((recordErr) => {
+        console.error("Could not record the sync failure:", recordErr);
+      });
     throw err;
   }
+
+  const updatedRun = await db.prepare("SELECT * FROM sync_runs WHERE run_id = ?1").bind(runId).first();
+  return {
+    skipped: false,
+    done: completedAll,
+    batchPages,
+    batchItems,
+    run: updatedRun,
+  };
 }

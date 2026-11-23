@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  BOARD_ORDER,
   computeSyncRunKey,
   extractEpisodeId,
   extractPodcastLinkInfo,
@@ -8,6 +9,7 @@ import {
   normalizePodcastItem,
   runSyncBatch,
 } from "../src/db/sync.js";
+import { createD1Binding, createSqliteDb, insertRows } from "./helpers/sqliteD1.js";
 
 test("extractEpisodeId extracts XiaoYuZhou episode ID from link", () => {
   assert.equal(
@@ -83,254 +85,432 @@ test("computeSyncRunKey uses UTC slot", () => {
   assert.deepEqual(key, { runId: "20261117T00", slot: "00" });
 });
 
-function createInMemoryMockDb() {
-  const state = {
-    syncRuns: new Map(),
-    appState: new Map(),
-    boardMeta: new Map(),
-    episodes: new Map(),
-    podcasts: new Map(),
+const DAY = Date.parse("2026-11-23T00:00:00Z");
+const at = (minutes) => new Date(DAY + minutes * 60_000);
+const RUN = "20261123T00";
+const ACTIVE = "20261122T00";
+const PREV = "20261121T00";
+// Leftovers of a run that never completed.
+const OLDER = "20261120T00";
+// The totals of 2026-11-23: 8 + 1 + 2 + 82 = 93 pages of 100 items.
+const LIVE_TOTALS = { episodes: 791, "new-episodes": 19, "new-podcasts": 131, podcasts: 8191 };
+// Small enough to read at a glance: 2 + 1 + 1 + 3 = 7 pages.
+const SMALL_TOTALS = { episodes: 150, "new-episodes": 10, "new-podcasts": 20, podcasts: 250 };
+
+/** xyzrank's four list endpoints; `failOn(call, requestNumber)` returns a status to fail with. */
+function fakeXyzrank(totals, { failOn = () => 0 } = {}) {
+  const calls = [];
+  const fetchFn = async (url) => {
+    const { pathname, searchParams } = new URL(url);
+    const board = pathname.split("/").pop();
+    const offset = Number(searchParams.get("offset"));
+    const limit = Number(searchParams.get("limit"));
+    const call = { board, offset, limit };
+    calls.push(call);
+    const failure = failOn(call, calls.length);
+    if (failure) return new Response("boom", { status: failure });
+
+    const count = Math.max(0, Math.min(limit, totals[board] - offset));
+    const items = Array.from({ length: count }, (_, idx) => {
+      const rank = offset + idx + 1;
+      return board.includes("episodes")
+        ? {
+            rank,
+            title: `${board} ${rank}`,
+            podcastName: `播客 ${rank}`,
+            link: `https://www.xiaoyuzhoufm.com/episode/${String(rank).padStart(24, "e")}`,
+            playCount: 1000,
+            commentCount: 10,
+            primaryGenreName: "科技",
+          }
+        : {
+            id: `${board}-${rank}`,
+            rank,
+            name: `${board} ${rank}`,
+            links: [{ name: "xyz", url: `https://www.xiaoyuzhoufm.com/podcast/${String(rank).padStart(24, "p")}` }],
+            primaryGenreName: "商业",
+          };
+    });
+    return new Response(JSON.stringify({ items, total: totals[board], offset, limit, medianValues: { playCount: 50 } }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
   };
+  return { calls, fetchFn };
+}
 
-  function makeStmt(sql, bound = []) {
-    return {
-      sql,
-      bound,
-      bind(...args) {
-        return makeStmt(sql, args);
-      },
-      async first() {
-        if (sql.includes("FROM sync_runs WHERE run_id =")) {
-          return state.syncRuns.get(bound[0]) || null;
-        }
-        if (sql.includes("SELECT value, updated_at FROM app_state WHERE key =")) {
-          return state.appState.get(bound[0]) || null;
-        }
-        return null;
-      },
-      async all() {
-        if (sql.includes("FROM episodes_rank") && sql.includes("GROUP BY board, primary_genre")) {
-          return { results: [{ board: "episodes", genre: "科技", count: 2 }] };
-        }
-        if (sql.includes("FROM podcasts_rank") && sql.includes("GROUP BY board, primary_genre")) {
-          return { results: [{ board: "podcasts", genre: "商业", count: 3 }] };
-        }
-        return { results: [] };
-      },
-      async run() {
-        if (sql.startsWith("INSERT INTO sync_runs")) {
-          const [run_id, slot, current_board, locked_until, started_at] = bound;
-          state.syncRuns.set(run_id, {
-            run_id,
-            slot,
-            status: "running",
-            current_board,
-            current_offset: 0,
-            board_totals_json: "{}",
-            pages_fetched: 0,
-            items_written: 0,
-            retry_count: 0,
-            last_error: null,
-            locked_until,
-            started_at,
-            finished_at: null,
-          });
-        } else if (sql.startsWith("UPDATE sync_runs SET status = 'running', locked_until")) {
-          const run = state.syncRuns.get(bound[0]);
-          if (run) run.locked_until = bound[1];
-        } else if (sql.includes("SET status = 'completed'")) {
-          const [runId, boardTotalsJson, pagesFetched, itemsWritten, finishedAt] = bound;
-          const run = state.syncRuns.get(runId);
-          Object.assign(run, {
-            status: "completed",
-            current_board: "done",
-            current_offset: 0,
-            board_totals_json: boardTotalsJson,
-            pages_fetched: pagesFetched,
-            items_written: itemsWritten,
-            last_error: null,
-            locked_until: 0,
-            finished_at: finishedAt,
-          });
-        } else if (sql.includes("SET status = 'running', current_board =")) {
-          const [runId, currentBoard, currentOffset, boardTotalsJson, pagesFetched, itemsWritten] = bound;
-          const run = state.syncRuns.get(runId);
-          Object.assign(run, {
-            status: "running",
-            current_board: currentBoard,
-            current_offset: currentOffset,
-            board_totals_json: boardTotalsJson,
-            pages_fetched: pagesFetched,
-            items_written: itemsWritten,
-            locked_until: 0,
-          });
-        } else if (sql.includes("SET status = ?2, current_board = ?3")) {
-          const [runId, status, currentBoard, currentOffset, boardTotalsJson, pagesFetched, itemsWritten, retryCount, lastError] = bound;
-          const run = state.syncRuns.get(runId);
-          Object.assign(run, {
-            status,
-            current_board: currentBoard,
-            current_offset: currentOffset,
-            board_totals_json: boardTotalsJson,
-            pages_fetched: pagesFetched,
-            items_written: itemsWritten,
-            retry_count: retryCount,
-            last_error: lastError,
-            locked_until: 0,
-          });
-        } else if (sql.startsWith("INSERT INTO board_meta")) {
-          const [syncVersion, board, total, syncedCount, medianJson, updatedAt] = bound;
-          state.boardMeta.set(`${syncVersion}:${board}`, {
-            syncVersion,
-            board,
-            total,
-            syncedCount,
-            medianJson,
-            updatedAt,
-          });
-        } else if (sql.startsWith("INSERT INTO app_state")) {
-          const [key, value, updated_at] = bound;
-          state.appState.set(key, { key, value, updated_at });
-        } else if (sql.startsWith("INSERT INTO episodes_rank")) {
-          const [syncVersion, board, rank, eid] = bound;
-          state.episodes.set(`${syncVersion}:${board}:${eid}`, { syncVersion, board, rank, eid });
-        } else if (sql.startsWith("INSERT INTO podcasts_rank")) {
-          const [syncVersion, board, rank, pid, rawId] = bound;
-          state.podcasts.set(`${syncVersion}:${board}:${rawId}`, { syncVersion, board, rank, pid, rawId });
-        } else if (sql.startsWith("DELETE FROM episodes_rank")) {
-          const keep = new Set(bound);
-          for (const [k, v] of state.episodes.entries()) {
-            if (!keep.has(v.syncVersion)) state.episodes.delete(k);
-          }
-        } else if (sql.startsWith("DELETE FROM podcasts_rank")) {
-          const keep = new Set(bound);
-          for (const [k, v] of state.podcasts.entries()) {
-            if (!keep.has(v.syncVersion)) state.podcasts.delete(k);
-          }
-        } else if (sql.startsWith("DELETE FROM board_meta")) {
-          const keep = new Set(bound);
-          for (const [k, v] of state.boardMeta.entries()) {
-            if (!keep.has(v.syncVersion)) state.boardMeta.delete(k);
-          }
-        } else if (sql.includes("DELETE FROM app_state WHERE key LIKE 'genres:%'")) {
-          const keep = new Set(bound);
-          for (const k of state.appState.keys()) {
-            if (k.startsWith("genres:") && !keep.has(k)) {
-              state.appState.delete(k);
-            }
-          }
-        }
-        return { success: true };
-      },
-    };
-  }
+const pages = (calls) => calls.map((call) => `${call.board}@${call.offset}`);
+const outline = (invocations) => invocations.map((one) => [one.batchPages, one.queries]);
 
-  return {
-    state,
-    prepare(sql) {
-      return makeStmt(sql);
-    },
-    async batch(stmts) {
-      for (const s of stmts) {
-        await s.run();
-      }
-      return [];
-    },
+/** The database as it is on the morning of a sync: two published versions, nothing for today. */
+function setup(totals, options = {}) {
+  const sqlite = createSqliteDb();
+  const db = createD1Binding(sqlite);
+  const published = [PREV, ACTIVE];
+  const iso = (version, time) => `${version.slice(0, 4)}-${version.slice(4, 6)}-${version.slice(6, 8)}T${time}`;
+
+  insertRows(
+    sqlite,
+    "episodes_rank",
+    ["sync_version", "board", "rank", "eid", "title"],
+    published.flatMap((version) => [
+      [version, "episodes", 1, `eid-${version}`, "单集"],
+      [version, "podcasts", 2, `eid2-${version}`, "单集"],
+    ])
+  );
+  insertRows(sqlite, "episodes_rank", ["sync_version", "board", "rank", "eid", "title"], [
+    [OLDER, "episodes", 1, "eid-older", "未完成的单集"],
+  ]);
+  insertRows(
+    sqlite,
+    "podcasts_rank",
+    ["sync_version", "board", "rank", "raw_id", "name"],
+    published.map((version) => [version, "podcasts", 1, `raw-${version}`, "播客"])
+  );
+  insertRows(
+    sqlite,
+    "board_meta",
+    ["sync_version", "board", "total", "synced_count", "median_values_json", "updated_at"],
+    published.flatMap((version) =>
+      BOARD_ORDER.map((board) => [version, board, 10, 10, "{}", iso(version, "00:10:00.000Z")])
+    )
+  );
+  insertRows(sqlite, "board_meta", ["sync_version", "board", "total", "synced_count", "median_values_json", "updated_at"], [
+    [OLDER, "episodes", 100, 100, "{}", iso(OLDER, "00:05:00.000Z")],
+  ]);
+  insertRows(sqlite, "app_state", ["key", "value", "updated_at"], [
+    ["active_sync_version", ACTIVE, iso(ACTIVE, "00:12:00.000Z")],
+    ["prev_sync_version", PREV, iso(ACTIVE, "00:12:00.000Z")],
+    [`genres:${ACTIVE}`, "{}", iso(ACTIVE, "00:12:00.000Z")],
+    [`genres:${PREV}`, "{}", iso(ACTIVE, "00:12:00.000Z")],
+  ]);
+
+  const upstream = fakeXyzrank(totals, options);
+  const run = (minute, extra = {}) =>
+    runSyncBatch(db, { now: at(minute), clock: () => at(minute), fetchFn: upstream.fetchFn, ...extra });
+  const runRow = () => sqlite.prepare("SELECT * FROM sync_runs WHERE run_id = ?").get(RUN) || null;
+  const cursor = () => {
+    const row = runRow();
+    return `${row.current_board}@${row.current_offset}`;
+  };
+  const rows = (table, version) =>
+    sqlite.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE sync_version = ?`).get(version).n;
+  const state = (key) => sqlite.prepare("SELECT value FROM app_state WHERE key = ?").get(key)?.value ?? null;
+  /** One trigger every two minutes until the day's sync is done, each with its D1 query count. */
+  const runDay = async (extra = {}) => {
+    const invocations = [];
+    for (let minute = 0; minute < 60 && !invocations.at(-1)?.done; minute += 2) {
+      const queriesBefore = db.roundTrips;
+      invocations.push({ ...(await run(minute, extra)), queries: db.roundTrips - queriesBefore });
+    }
+    return invocations;
+  };
+  return { sqlite, db, upstream, run, runRow, cursor, rows, state, runDay };
+}
+
+/** Run `hook` just before the first batch that contains a statement prepared from `sql`. */
+function beforeBatchWith(db, sql, hook) {
+  const prepare = db.prepare.bind(db);
+  const batch = db.batch.bind(db);
+  const matching = new WeakSet();
+  db.prepare = (text) => {
+    const statement = prepare(text);
+    if (text.includes(sql)) matching.add(statement);
+    return statement;
+  };
+  let fired = false;
+  db.batch = async (statements) => {
+    if (!fired && statements.some((statement) => matching.has(statement))) {
+      fired = true;
+      await hook();
+    }
+    return batch(statements);
   };
 }
 
-test("runSyncBatch executes multi-batch relay across all 4 boards and activates sync version", async () => {
-  const db = createInMemoryMockDb();
-  // Seed an older version that should stay if it was prevActive, and an obsolete version that gets cleaned
-  db.state.appState.set("active_sync_version", { value: "20261116T12", updated_at: "2026-11-16T12:06:00Z" });
-  db.state.appState.set("genres:old-v0", { key: "genres:old-v0", value: "{}", updated_at: "2026-11-15T00:00:00Z" });
-  db.state.episodes.set("old-v0:episodes:e0", { syncVersion: "old-v0" });
-  db.state.episodes.set("20261116T12:episodes:ePrev", { syncVersion: "20261116T12" });
-
-  let fetchCalls = 0;
-  const mockFetch = async (url) => {
-    fetchCalls += 1;
-    const u = new URL(url);
-    const board = u.pathname.split("/").pop();
-    const offset = Number(u.searchParams.get("offset"));
-
-    const totals = {
-      episodes: 150, // 2 pages
-      "new-episodes": 10, // 1 page
-      "new-podcasts": 20, // 1 page
-      podcasts: 250, // 3 pages
-    };
-    const total = totals[board];
-    const remaining = Math.max(0, total - offset);
-    const count = Math.min(100, remaining);
-    const items = Array.from({ length: count }, (_, idx) => {
-      const rank = offset + idx + 1;
-      if (board.includes("episodes")) {
-        return {
-          rank,
-          title: `${board}-${rank}`,
-          link: `https://www.xiaoyuzhoufm.com/episode/6aec7f8c5b7c4709bfe${String(rank).padStart(5, "0")}`,
-          playCount: 100,
-          commentCount: 10,
-        };
+/** Run `hook` just before the first statement prepared from `sql` is sent on its own. */
+function beforeStatementRuns(db, sql, hook) {
+  const prepare = db.prepare.bind(db);
+  let fired = false;
+  db.prepare = (text) => {
+    const statement = prepare(text);
+    if (!text.includes(sql)) return statement;
+    const run = statement.run.bind(statement);
+    statement.run = async () => {
+      if (!fired) {
+        fired = true;
+        await hook();
       }
-      return {
-        id: `${board}-raw-${rank}`,
-        rank,
-        name: `${board}-${rank}`,
-        links: [{ name: "xyz", url: `https://www.xiaoyuzhoufm.com/podcast/625635587bfca4e73e9${String(rank).padStart(5, "0")}` }],
-      };
-    });
+      return run();
+    };
+    return statement;
+  };
+}
 
-    return new Response(
-      JSON.stringify({ items, total, offset, limit: 100, medianValues: { playCount: 50 } }),
-      { status: 200, headers: { "Content-Type": "application/json" } }
-    );
+test("runSyncBatch relays the boards across invocations, saving every page as it goes", async () => {
+  const { db, upstream, run, runRow, cursor, rows, state } = setup(SMALL_TOTALS);
+
+  const first = await run(0, { maxPages: 3 });
+  assert.equal(first.done, false);
+  assert.equal(first.batchPages, 3);
+  assert.deepEqual(pages(upstream.calls), ["episodes@0", "episodes@100", "new-episodes@0"]);
+  // The pages fetched so far are stored, with the cursor that follows them.
+  assert.equal(rows("episodes_rank", RUN), 160);
+  assert.equal(rows("podcasts_rank", RUN), 0);
+  assert.equal(cursor(), "new-podcasts@0");
+  assert.equal(runRow().pages_fetched, 3);
+  assert.equal(runRow().locked_until, 0, "the lock is released at the end of a batch");
+  assert.equal(state("active_sync_version"), ACTIVE, "nothing is published before the run completes");
+
+  const second = await run(2, { maxPages: 3 });
+  assert.equal(second.done, false);
+  assert.deepEqual(pages(upstream.calls.slice(3)), ["new-podcasts@0", "podcasts@0", "podcasts@100"]);
+  assert.equal(rows("podcasts_rank", RUN), 220);
+
+  const third = await run(4, { maxPages: 3 });
+  assert.equal(third.done, true);
+  assert.equal(third.batchPages, 1);
+  assert.equal(third.run.status, "completed");
+  assert.equal(rows("episodes_rank", RUN), 160);
+  assert.equal(rows("podcasts_rank", RUN), 270);
+
+  // The finished run is published, and only the versions it supersedes are removed.
+  assert.equal(state("active_sync_version"), RUN);
+  assert.equal(state("prev_sync_version"), ACTIVE);
+  assert.deepEqual(JSON.parse(state(`genres:${RUN}`)), {
+    episodes: [{ genre: "科技", count: 150 }],
+    "new-episodes": [{ genre: "科技", count: 10 }],
+    "new-podcasts": [{ genre: "商业", count: 20 }],
+    podcasts: [{ genre: "商业", count: 250 }],
+  });
+  assert.equal(rows("podcasts_rank", ACTIVE), 1, "the previous version stays for rank trends");
+  assert.equal(rows("episodes_rank", PREV), 0);
+  assert.equal(rows("podcasts_rank", PREV), 0);
+  assert.equal(rows("board_meta", PREV), 0);
+  assert.equal(state(`genres:${PREV}`), null);
+  assert.equal(rows("episodes_rank", OLDER), 0, "leftovers of a run that never completed are removed too");
+  assert.equal(rows("board_meta", OLDER), 0);
+  assert.equal(runRow().locked_until, 0);
+
+  // Later triggers of the day cost one query and fetch nothing.
+  const queriesBefore = db.roundTrips;
+  const fetchedBefore = upstream.calls.length;
+  const later = await run(6);
+  assert.deepEqual(
+    { skipped: later.skipped, reason: later.reason, done: later.done },
+    { skipped: true, reason: "already_completed", done: true }
+  );
+  assert.equal(db.roundTrips - queriesBefore, 1);
+  assert.equal(upstream.calls.length, fetchedBefore);
+});
+
+test("no invocation comes near the 50 D1 queries the Free plan allows", async () => {
+  // A full batch is 2 queries to start, 1 per page and 1 to read the result back;
+  // the one that finishes the run adds 2 for the switch-over.
+  const live = setup(LIVE_TOTALS);
+  const day = await live.runDay();
+  assert.deepEqual(outline(day), [
+    [15, 18],
+    [15, 18],
+    [15, 18],
+    [15, 18],
+    [15, 18],
+    [15, 18],
+    [3, 8],
+  ]);
+  assert.equal(live.rows("podcasts_rank", RUN), 8322, "131 new podcasts and the board of 8,191");
+
+  // A last batch that is full, right before the switch-over, used to need 51 to 54 queries.
+  for (const [podcasts, expected] of [
+    [2600, [[15, 18], [14, 19]]],
+    [2700, [[15, 18], [15, 20]]],
+  ]) {
+    const { runDay } = setup({ episodes: 5, "new-episodes": 5, "new-podcasts": 5, podcasts });
+    const day = await runDay();
+    assert.deepEqual(outline(day), expected);
+  }
+
+  // The largest batch the admin API accepts still fits: one request and one query per page.
+  const big = setup(LIVE_TOTALS);
+  const queriesBefore = big.db.roundTrips;
+  const result = await big.run(0, { maxPages: 100 });
+  assert.equal(result.batchPages, 35, "more than 35 pages per invocation is not allowed");
+  assert.equal(big.upstream.calls.length, 35);
+  assert.equal(big.db.roundTrips - queriesBefore, 38);
+});
+
+test("a page is saved before the next one is fetched, so a failure resumes where it stopped", async () => {
+  const { sqlite, upstream, run, runRow, cursor, rows } = setup(SMALL_TOTALS, {
+    failOn: (call, request) => (request === 3 ? 503 : 0),
+  });
+
+  await assert.rejects(run(0, { maxPages: 3 }), /Upstream new-episodes offset=0 failed with HTTP 503/);
+  // The two pages fetched before the failure are stored, and the run points at the page that failed.
+  assert.equal(rows("episodes_rank", RUN), 150);
+  assert.equal(runRow().pages_fetched, 2);
+  assert.equal(cursor(), "new-episodes@0");
+  assert.equal(runRow().last_error, "Upstream new-episodes offset=0 failed with HTTP 503");
+  assert.equal(runRow().locked_until, 0);
+  const stored = sqlite.prepare("SELECT synced_count FROM board_meta WHERE sync_version = ? AND board = 'episodes'").get(RUN);
+  assert.equal(stored.synced_count, 150);
+
+  // The next trigger carries on from there.
+  const next = await run(2, { maxPages: 3 });
+  assert.equal(next.batchPages, 3);
+  assert.equal(pages(upstream.calls.slice(3))[0], "new-episodes@0");
+  assert.equal(upstream.calls.filter((call) => call.board === "episodes").length, 2, "saved pages are not fetched again");
+});
+
+test("a trigger that arrives while the previous invocation still runs waits for it", async () => {
+  const { sqlite, db, upstream, run } = setup(LIVE_TOTALS);
+
+  // The next trigger fires while the first invocation is still fetching its first page.
+  const overlapping = {};
+  const fetchFn = async (url) => {
+    if (!overlapping.result) {
+      const fetchedBefore = upstream.calls.length;
+      const queriesBefore = db.roundTrips;
+      overlapping.result = await run(1);
+      Object.assign(overlapping, {
+        fetched: upstream.calls.length - fetchedBefore,
+        queries: db.roundTrips - queriesBefore,
+      });
+    }
+    return upstream.fetchFn(url);
+  };
+  const first = await run(0, { fetchFn });
+  assert.equal(first.batchPages, 15);
+  assert.deepEqual(
+    {
+      skipped: overlapping.result.skipped,
+      reason: overlapping.result.reason,
+      fetched: overlapping.fetched,
+      queries: overlapping.queries,
+    },
+    { skipped: true, reason: "locked", fetched: 0, queries: 2 }
+  );
+
+  // Two triggers that both find no run for the day: the one that inserts the row proceeds.
+  const racing = setup(SMALL_TOTALS);
+  beforeStatementRuns(racing.db, "INSERT OR IGNORE INTO sync_runs", () => {
+    racing.sqlite
+      .prepare("INSERT INTO sync_runs (run_id, slot, status, current_board, locked_until, started_at) VALUES (?, '00', 'running', 'episodes', ?, ?)")
+      .run(RUN, at(0).getTime() + 90_000, at(0).toISOString());
+  });
+  const lost = await racing.run(0);
+  assert.deepEqual(
+    { skipped: lost.skipped, reason: lost.reason, fetched: racing.upstream.calls.length },
+    { skipped: true, reason: "locked", fetched: 0 }
+  );
+
+  // A lock is kept for 90 seconds after the last page of the invocation holding it,
+  // then the next trigger takes the run over.
+  sqlite.prepare("UPDATE sync_runs SET locked_until = ? WHERE run_id = ?").run(at(3).getTime() + 60_000, RUN);
+  const waiting = await run(3);
+  assert.equal(waiting.reason, "locked");
+  const takenOver = await run(4.5);
+  assert.equal(takenOver.skipped, false);
+  assert.equal(takenOver.batchPages, 15);
+});
+
+test("an invocation whose lock expired stops as soon as another one has moved the run on", async () => {
+  const { sqlite, upstream, run, runRow, cursor } = setup(LIVE_TOTALS);
+  let fetched = 0;
+  const fetchFn = async (url) => {
+    fetched += 1;
+    if (fetched === 2) {
+      // Its lock expired during a slow page, and another invocation carried on.
+      sqlite
+        .prepare(
+          "UPDATE sync_runs SET pages_fetched = pages_fetched + 5, current_board = 'podcasts', current_offset = 500, locked_until = ? WHERE run_id = ?"
+        )
+        .run(at(0).getTime() + 10 * 60_000, RUN);
+    }
+    return upstream.fetchFn(url);
   };
 
-  // Batch 1: maxPages = 3 (episodes:2 + new-episodes:1)
-  const r1 = await runSyncBatch(db, {
-    now: new Date("2026-11-17T00:00:00Z"),
-    fetchFn: mockFetch,
-    maxPages: 3,
-  });
-  assert.equal(r1.done, false);
-  assert.equal(r1.batchPages, 3);
-  assert.equal(fetchCalls, 3);
-  assert.equal(db.state.appState.get("active_sync_version").value, "20261116T12");
+  const result = await run(0, { fetchFn });
+  assert.deepEqual({ skipped: result.skipped, reason: result.reason, fetched }, { skipped: true, reason: "taken_over", fetched: 2 });
+  assert.equal(cursor(), "podcasts@500");
+  assert.equal(runRow().pages_fetched, 6);
+  assert.equal(runRow().locked_until, at(0).getTime() + 10 * 60_000, "the other invocation keeps its lock");
+});
 
-  // Batch 2: maxPages = 3 (new-podcasts:1 + podcasts:2)
-  const r2 = await runSyncBatch(db, {
-    now: new Date("2026-11-17T00:02:00Z"),
-    fetchFn: mockFetch,
-    maxPages: 3,
-  });
-  assert.equal(r2.done, false);
-  assert.equal(r2.batchPages, 3);
+test("an invocation whose lock expired cannot record its failure over the new owner", async () => {
+  const { sqlite, db, upstream, run, runRow } = setup(LIVE_TOTALS);
+  // The lock expires during the second page, another invocation takes the run
+  // over, and then the stale invocation's own write fails.
+  const othersLock = at(0).getTime() + 10 * 60_000;
+  let fetched = 0;
+  let pageBatches = 0;
+  const fetchFn = async (url) => {
+    fetched += 1;
+    if (fetched === 2) {
+      sqlite
+        .prepare("UPDATE sync_runs SET locked_until = ?, retry_count = 0 WHERE run_id = ?")
+        .run(othersLock, RUN);
+    }
+    return upstream.fetchFn(url);
+  };
+  const prepare = db.prepare.bind(db);
+  const batch = db.batch.bind(db);
+  const cursorStatements = new WeakSet();
+  db.prepare = (text) => {
+    const statement = prepare(text);
+    if (text.includes("SET status = 'running', current_board")) cursorStatements.add(statement);
+    return statement;
+  };
+  db.batch = async (statements) => {
+    if (statements.some((statement) => cursorStatements.has(statement)) && (pageBatches += 1) === 2) {
+      throw new Error("D1_ERROR: over quota");
+    }
+    return batch(statements);
+  };
 
-  // Batch 3: remaining 1 page of podcasts -> completes!
-  const r3 = await runSyncBatch(db, {
-    now: new Date("2026-11-17T00:04:00Z"),
-    fetchFn: mockFetch,
-    maxPages: 3,
-  });
-  assert.equal(r3.done, true);
-  assert.equal(r3.batchPages, 1);
-  assert.equal(db.state.appState.get("active_sync_version").value, "20261117T00");
-  assert.equal(db.state.appState.get("prev_sync_version").value, "20261116T12");
-  assert.equal(Boolean(db.state.appState.get("genres:20261117T00")), true);
-  assert.equal(db.state.appState.has("genres:old-v0"), false);
-  assert.equal(db.state.episodes.has("old-v0:episodes:e0"), false);
-  assert.equal(db.state.episodes.has("20261116T12:episodes:ePrev"), true);
+  await assert.rejects(run(0, { fetchFn }), /over quota/);
+  assert.deepEqual({ fetched, pageBatches }, { fetched: 2, pageBatches: 2 });
+  assert.equal(runRow().retry_count, 0, "the failure is not counted against the run");
+  assert.equal(runRow().last_error, null);
+  assert.equal(runRow().locked_until, othersLock, "the other invocation keeps its lock");
+  assert.equal(runRow().pages_fetched, 1);
+});
 
-  // Subsequent tick in same hour skips with 0 fetches
-  const prevFetchCalls = fetchCalls;
-  const r4 = await runSyncBatch(db, {
-    now: new Date("2026-11-17T00:06:00Z"),
-    fetchFn: mockFetch,
-    maxPages: 3,
+test("a switch-over that fails is retried with one request and publishes the same data", async () => {
+  const { db, upstream, run, runRow, rows, state } = setup(SMALL_TOTALS);
+  // The database refuses the batch that publishes the run, once.
+  beforeBatchWith(db, "INSERT INTO app_state (key, value, updated_at)", async () => {
+    throw new Error("D1_ERROR: over quota");
   });
-  assert.equal(r4.skipped, true);
-  assert.equal(r4.reason, "already_completed");
-  assert.equal(fetchCalls, prevFetchCalls);
+
+  await assert.rejects(run(0, { maxPages: 7 }), /over quota/);
+  assert.equal(state("active_sync_version"), ACTIVE, "the previous version stays in place");
+  assert.equal(runRow().status, "running");
+  assert.equal(rows("episodes_rank", RUN), 160, "the pages that were fetched stay");
+  assert.equal(rows("podcasts_rank", RUN), 270);
+  assert.equal(runRow().locked_until, 0);
+
+  const retried = await run(2);
+  assert.equal(retried.done, true);
+  assert.deepEqual(pages(upstream.calls.slice(7)), ["podcasts@250"], "only the end of the last board is asked for again");
+  assert.equal(state("active_sync_version"), RUN);
+  assert.equal(rows("podcasts_rank", RUN), 270);
+});
+
+test("a run that lost its lock cannot publish the version or remove another one", async () => {
+  const { sqlite, db, run, runRow, rows, state } = setup(SMALL_TOTALS);
+  // Another invocation takes the lock right after the last page is stored.
+  const othersLock = at(0).getTime() + 5 * 60_000;
+  beforeBatchWith(db, "SELECT value FROM app_state WHERE key = ?1", () => {
+    sqlite.prepare("UPDATE sync_runs SET locked_until = ? WHERE run_id = ?").run(othersLock, RUN);
+  });
+
+  const result = await run(0, { maxPages: 7 });
+  assert.deepEqual({ skipped: result.skipped, reason: result.reason }, { skipped: true, reason: "taken_over" });
+  assert.equal(runRow().status, "running");
+  assert.equal(runRow().locked_until, othersLock);
+  assert.equal(state("active_sync_version"), ACTIVE);
+  assert.equal(state(`genres:${RUN}`), null);
+  assert.equal(rows("episodes_rank", PREV), 2, "the versions in place are not removed");
+  assert.equal(rows("episodes_rank", OLDER), 1, "nothing is cleaned up either");
+  assert.equal(rows("episodes_rank", RUN), 160, "the pages that were fetched stay");
 });

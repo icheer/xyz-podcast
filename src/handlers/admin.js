@@ -1,5 +1,5 @@
 import { getActiveSyncVersion, getEffectiveSyncVersion } from "../db/schema.js";
-import { DEFAULT_MAX_PAGES_PER_BATCH, runSyncBatch } from "../db/sync.js";
+import { DEFAULT_MAX_PAGES_PER_BATCH, MAX_PAGES_PER_INVOCATION, runSyncBatch } from "../db/sync.js";
 import { clampInt, errorJson, json, safeJsonParse } from "../utils/http.js";
 
 function timingSafeEquals(a, b) {
@@ -30,7 +30,7 @@ export async function handleAdminSync(request, env) {
   }
 
   const body = await request.json().catch(() => ({}));
-  const maxPages = clampInt(body?.maxPages, DEFAULT_MAX_PAGES_PER_BATCH, 1, 35);
+  const maxPages = clampInt(body?.maxPages, DEFAULT_MAX_PAGES_PER_BATCH, 1, MAX_PAGES_PER_INVOCATION);
   const force = Boolean(body?.force);
   const runIdOverride = typeof body?.runId === "string" && body.runId.trim() ? body.runId.trim() : null;
 
