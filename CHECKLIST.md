@@ -359,6 +359,13 @@
   - `package.json` 新增 `check`（`npm run lint && npm test`）和 `predeploy` 钩子。README 约定的部署命令是 `npm run db:migrate:remote && npm run deploy`，因此 Workers Builds 和本地 CLI 部署都会先跑检查；Cloudflare 文档写明 Workers Builds 不读取 `wrangler.toml` 的自定义构建命令，所以没有使用该配置。检查发生在迁移之后，README 给出了「先检查再迁移」的可选部署命令。
   - `.github/workflows/ci.yml` 在推送到 `main` 和 PR 时用 Node 24 执行 `npm ci` 与 `npm run check`（`actions/checkout@v7`、`actions/setup-node@v7`）。
   - 验证：Node 26 与 Node 24.22.1（Workers Builds 的默认版本）下 `npm run check` 均通过；在临时目录用新的锁文件执行 `npm ci` 成功；`npm run deploy -- --dry-run`（带无效令牌，不会发布）先完成 lint 和 51 项测试，再进入 `wrangler deploy` 的 dry run；把一个组件的模板改坏后（lint 不报），冒烟测试失败，同一命令以状态 1 退出，没有执行到 `wrangler deploy`。未在 GitHub 上运行工作流，也未触发线上构建。
+  - 全部提交完成后对最终代码复查：Node 24.22.1 与 Node 26 下 `npm run check` 均通过（51/51）；本地 `wrangler dev` + Playwright 在 Chromium、WebKit 走查首页（榜单经新接口逻辑返回，`total` 为 791）、频道页（实时取到 15 集）、单集页（shownotes 与 21 条热评），页面错误 0；播放器检查 24/24。
+
+- [ ] **SYNC-01** 同步状态机单次调用的 D1 查询数贴着 Free Plan 上限（待决定是否处理）。
+  - 用 `test/helpers/sqliteD1.js` 对真实的 `runSyncBatch` 计数（`db.batch()` 计 1 次）：当前共 93 页，各次调用依次为 48、49×5、19，Free Plan 上限为 50。
+  - 总页数除以 15 余 14 或 0 时，最后一次调用需要 51~54 次，例如热门播客增至 9,201~9,400 条（共 104~105 页）。管理接口的 `maxPages` 超过 15 时，每次调用为 51~52 次。
+  - 超限后的表现按代码推断，未在线上验证：收尾阶段的 UPDATE 失败进入 `catch`，`catch` 里的 UPDATE 同样超限失败，游标停在本次批次的起点，之后每 2 分钟重拉同一批并再次失败；`retry_count` 与 `last_error` 不会更新，新版本不会发布。
+  - 可选修法：把 `board_meta` 更新和游标更新并入写入榜单行的同一个 `db.batch`（每页 2 次查询），并合并收尾阶段的版本切换读写。
 
 ## 交接日志（Handover Log）
 
