@@ -177,6 +177,7 @@ xyz-podcast/
   - 每次 `scheduled()` 默认最多拉取 **15 页**，为重试预留外部请求额度。
   - **D1 查询预算**：Free Plan 每次 Worker 调用还最多 50 次 D1 查询，一次 `db.batch()` 只算 1 次。状态机每页只花 1 次：该页的榜单行、`board_meta` 和新的游标在同一个 `db.batch` 里提交。满载的一次调用是 2 次启动 + 15 页 + 1 次读回结果 = 18 次，完成整轮的那次再加 2 次切换；`maxPages` 取上限 35 时是 38 次。改动同步逻辑后用 `test/sync.test.js` 里的查询计数断言核对。
   - **逐页保存与并发保护**：游标随每页落库，某一页失败时之前的页不重抓。加锁是一条带条件的 `UPDATE`（`locked_until <= now`），每页的批次顺带把锁续到 90 秒后，批次结束即释放。游标更新带 `pages_fetched` 比对：锁过期后被别的调用接管的旧调用，在下一页写入时发现比对不上就立即退出，不会把游标写回去，也不能记录失败或发布版本。
+  - **失败处理**：`retry_count` 是连续没有存下任何页面的失败次数，没有不可恢复的状态。存下过页面的调用失败只记 `last_error`，下一次触发就重试；一页都没存下的失败把 `status` 记为 `failed`，并用 `locked_until` 让之后的触发等待 2、4、8、最多 16 分钟再试，所以上游故障时半小时窗口内请求 5 次而不是 16 次。存下任意一页就清零，等待结束后的触发会接着跑。
   - 拉取顺序优先小榜单后大榜单：`episodes` (8 页) -> `new-episodes` (1 页) -> `new-podcasts` (2 页) -> `podcasts` (82 页)。
   - 约 7 次触发（~12 分钟）完成全部 93 页并将该时段 `sync_runs.status` 置为 `completed`。同窗口剩余触发查到已完成后直接返回，外部请求数为 0。
   - 目前约 9,100 条的规模，每天一轮约消耗 35.8k 行写入。D1 免费写入额度为账户共享的 100k/UTC 日，手动同步和迁移也计入额度。
@@ -185,6 +186,7 @@ xyz-podcast/
 - 每次同步生成唯一 `sync_version`（如 `20261117T00`）。
 - 新拉取数据带 `sync_version` 写入 `episodes_rank` / `podcasts_rank` / `board_meta`。
 - 前端 API 读取 `app_state.active_sync_version` 对应的完整版本；仅当整轮 4 个榜单全部抓取完成后才切换：把这一轮标记为 `completed`、写入 `prev_sync_version` / `active_sync_version` / 分类缓存、清理更早的版本，全部在同一个 `db.batch` 里提交，每条语句都以该行为 `completed` 为条件。保留最近 1~2 个版本供趋势对比。
+- **不发布残缺版本**：榜单中途返回空页按失败处理，不当作该榜结束；新一轮声明的总条目数不到当前版本一半时拒绝发布并记入 `last_error`，当前版本和它的上一版保持不变。
 - **冷启动兜底**：若 `active_sync_version` 尚未存在（首次部署刚启动第 1 批），允许回退读取最近一条 `sync_runs` 的已入库数据，保证首次部署几分钟内即有数据可看。
 
 ### 4.3 D1 表结构要点 (`migrations/`)
@@ -193,7 +195,7 @@ xyz-podcast/
 - `0002_rank_composite_keys.sql` 在迁移中复制已有榜单数据并换表，保留各版本和对应的趋势基线。升级已有库前按快照体量预留一次性写入额度，部署窗口参见 README。
 - `board_meta`: `(sync_version, board, total, synced_count, median_values_json, updated_at, PRIMARY KEY (sync_version, board))`。已发布版本的 `total` 同时作为无筛选榜单请求返回的总数。
 - **读取额度**：Free Plan 每天读 500 万行，超出后 D1 报错到次日 08:00（北京时间）。`COUNT(*)` 与非排名列排序都会扫完整个榜单分区（热门播客约 8,200 行/次），新增查询前先用 `test/helpers/sqliteD1.js` 或本地 `meta.rows_read` 估算读取量。
-- `sync_runs`: `(run_id PK, slot, status, current_board, current_offset, pages_fetched, items_written, retry_count, last_error, locked_until, started_at, finished_at)`。`pages_fetched` 同时是游标更新的比对值；`locked_until` 是加锁到期时间（毫秒，`0` 表示未加锁）。
+- `sync_runs`: `(run_id PK, slot, status, current_board, current_offset, pages_fetched, items_written, retry_count, last_error, locked_until, started_at, finished_at)`。`pages_fetched` 同时是游标更新的比对值；`locked_until` 是锁的到期时间（毫秒，`0` 表示未加锁），失败后也是下一次允许重试的时间；`status` 为 `failed` 只表示最近一次尝试失败。
 - `app_state`: `(key PK, value, updated_at)`。
 
 ---
@@ -327,6 +329,7 @@ npm run deploy               # npx wrangler deploy
 - **暂停时移除当前单集**：`FIX-02` 修复移除当前单集后下一集自动开始播放的问题，暂停状态下只加载不播放，播放中则照常接续。同一套浏览器检查在 Chromium、WebKit 各 12 项通过，资源版本 `app.js?v=42`、`sw.js v16`。
 - **榜单读取额度**：`PERF-05` 去掉已发布版本无筛选请求的 `COUNT(*)`，改读同一请求里已有的 `board_meta.total`；带筛选的计数按版本缓存在 isolate 内存。响应格式不变。本地 workerd 实测热门播客首页 8,277 → 86 行、第 6 页 8,677 → 486 行、热门单集首页 918 → 126 行；非排名列排序仍需全表扫描（热门播客约 16,400 行/次），待后续处理。新增 `test/boards.test.js` 对真实 SQLite 验证 8 项，`npm test` 36/36。
 - **同步查询预算**：`SYNC-01` 同步状态机改为每页一次 `db.batch`（榜单行 + `board_meta` + 游标和锁），加锁与版本切换各合并成一条查询。93 页时每次调用 18 条查询（原 48~49），最后一批为满载时 19~20 条（原 51~54），`maxPages` 上限 35 时 38 条，Free Plan 上限为 50。游标逐页落库，加锁原子化，被接管的旧调用不会再覆盖游标或发布版本。本地 workerd 空库实测 7 次调用同步发布 94 页，线上未验证。
+- **同步失败退避**：`SYNC-02` 失败次数改为连续无进展的计数，存下一页即清零，不再把当天永久标记为失败；无进展的失败按 2/4/8/16 分钟退避。榜单中途空页按失败处理，新一轮条目数不到当前版本一半时拒绝发布。单测覆盖，线上未验证。
 - **手动关注播客**：`UI-27` 在「关注播客」Tab 增加手动添加入口，接受 PID 和频道链接，验证后按 PID 去重保存。Chromium、WebKit 验证原生输入框、有效及无效输入、重复添加和刷新恢复，单测 28/28。
 - **小宇宙图片缩略图**：`PERF-04` 在浏览器设置封面、头像及简介插图的 `src` 前转换到 `@small`，覆盖已有本地收藏、历史及队列。真实 CDN 样本及 Chromium、WebKit 请求验证通过，单测 26/26。
 - **单集播放与入队顺序**：`UI-26` 在榜单、频道和单集页立即播放另一集时移到队首，单集入队时插在当前单集之后。Chromium 实测卡片和表格、频道和单集页的操作，以及重复入队、空队列、调序、顺序续播及刷新恢复。单测 25/25。

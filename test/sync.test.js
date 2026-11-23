@@ -349,8 +349,16 @@ test("a page is saved before the next one is fetched, so a failure resumes where
   assert.equal(rows("episodes_rank", RUN), 150);
   assert.equal(runRow().pages_fetched, 2);
   assert.equal(cursor(), "new-episodes@0");
-  assert.equal(runRow().last_error, "Upstream new-episodes offset=0 failed with HTTP 503");
-  assert.equal(runRow().locked_until, 0);
+  // Saving pages before the failure means it is not counted as a failed attempt.
+  assert.deepEqual(
+    { status: runRow().status, failures: runRow().retry_count, error: runRow().last_error, lock: runRow().locked_until },
+    {
+      status: "running",
+      failures: 0,
+      error: "Upstream new-episodes offset=0 failed with HTTP 503",
+      lock: 0,
+    }
+  );
   const stored = sqlite.prepare("SELECT synced_count FROM board_meta WHERE sync_version = ? AND board = 'episodes'").get(RUN);
   assert.equal(stored.synced_count, 150);
 
@@ -359,6 +367,117 @@ test("a page is saved before the next one is fetched, so a failure resumes where
   assert.equal(next.batchPages, 3);
   assert.equal(pages(upstream.calls.slice(3))[0], "new-episodes@0");
   assert.equal(upstream.calls.filter((call) => call.board === "episodes").length, 2, "saved pages are not fetched again");
+});
+
+test("a run that keeps failing is asked less often, and is never given up", async () => {
+  let healthy = false;
+  const { run, runRow, upstream } = setup(LIVE_TOTALS, { failOn: () => (healthy ? 0 : 503) });
+
+  // Every trigger of the half-hour window: the attempts fall 2, 4, 8 and 16
+  // minutes apart instead of one every 2 minutes, and the rest are skipped.
+  const attempts = [];
+  for (let minute = 0; minute <= 30; minute += 2) {
+    const fetchedBefore = upstream.calls.length;
+    const result = await run(minute).catch((err) => ({ failed: err.message }));
+    if (upstream.calls.length > fetchedBefore) attempts.push(minute);
+    else assert.deepEqual([result.skipped, result.reason], [true, "backoff"]);
+  }
+  assert.deepEqual(attempts, [0, 2, 6, 14, 30]);
+  assert.deepEqual(
+    { status: runRow().status, failures: runRow().retry_count, error: runRow().last_error },
+    { status: "failed", failures: 5, error: "Upstream episodes offset=0 failed with HTTP 503" }
+  );
+  assert.equal(runRow().locked_until, at(30).getTime() + 16 * 60_000);
+
+  // However often it has failed, the next trigger after the wait picks it up again.
+  healthy = true;
+  const recovered = await run(48);
+  assert.equal(recovered.batchPages, 15);
+  assert.deepEqual(
+    { status: runRow().status, failures: runRow().retry_count, error: runRow().last_error, lock: runRow().locked_until },
+    { status: "running", failures: 0, error: null, lock: 0 }
+  );
+});
+
+test("a run left as failed by the old counter is picked up again", async () => {
+  const { sqlite, run, runRow, cursor } = setup(LIVE_TOTALS);
+  // The counter used to grow with every failure, and a run that reached ten was
+  // skipped for the rest of the day.
+  sqlite
+    .prepare(
+      `INSERT INTO sync_runs (run_id, slot, status, current_board, current_offset, pages_fetched, items_written,
+         retry_count, last_error, locked_until, started_at)
+       VALUES (?, '00', 'failed', 'podcasts', 1900, 30, 2810, 12, 'Upstream podcasts offset=1900 failed with HTTP 500', 0, ?)`
+    )
+    .run(RUN, at(0).toISOString());
+
+  const result = await run(0);
+  assert.equal(result.skipped, false);
+  assert.equal(result.batchPages, 15);
+  assert.deepEqual([runRow().status, runRow().retry_count, runRow().last_error], ["running", 0, null]);
+  assert.equal(cursor(), "podcasts@3400");
+});
+
+test("a saved page clears the failure count, so the next run of failures starts over", async () => {
+  let healthy = false;
+  const { run, runRow } = setup(LIVE_TOTALS, { failOn: () => (healthy ? 0 : 503) });
+
+  await assert.rejects(run(0), /503/);
+  await assert.rejects(run(2), /503/);
+  assert.equal(runRow().retry_count, 2);
+  assert.equal(runRow().locked_until, at(2).getTime() + 4 * 60_000);
+
+  healthy = true;
+  await run(6);
+  assert.deepEqual([runRow().status, runRow().retry_count, runRow().last_error], ["running", 0, null]);
+
+  healthy = false;
+  await assert.rejects(run(8), /503/);
+  assert.deepEqual([runRow().status, runRow().retry_count], ["failed", 1]);
+  assert.equal(runRow().locked_until, at(8).getTime() + 2 * 60_000, "the first wait again, not the third");
+});
+
+test("an empty page in the middle of a board is an error, not the end of the board", async () => {
+  const { upstream, run, runRow, cursor, rows, state } = setup(SMALL_TOTALS);
+  // The sixth request is the second page of the podcasts board: the upstream
+  // answers it with no items but the full total.
+  let requests = 0;
+  const fetchFn = async (url) => {
+    requests += 1;
+    if (requests !== 6) return upstream.fetchFn(url);
+    return new Response(JSON.stringify({ items: [], total: 250, offset: 100, limit: 100 }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  };
+
+  await assert.rejects(run(0, { maxPages: 7, fetchFn }), /podcasts offset=100 returned an empty page before the end of the board \(100 of 250\)/);
+  // Taken for the end of the board, it would have published a run without the other 150 podcasts.
+  assert.equal(state("active_sync_version"), ACTIVE);
+  assert.equal(runRow().status, "running");
+  assert.equal(cursor(), "podcasts@100");
+  assert.equal(rows("podcasts_rank", RUN), 120, "the new podcasts and the first page of the board");
+
+  const finished = await run(2, { maxPages: 7, fetchFn });
+  assert.equal(finished.done, true);
+  assert.equal(rows("podcasts_rank", RUN), 270);
+  assert.equal(state("active_sync_version"), RUN);
+});
+
+test("a run that came back with a fraction of the current list is not published", async () => {
+  const { sqlite, run, runRow, rows, state } = setup(SMALL_TOTALS);
+  // The active version lists 400 items in each board; today's run finds 430 in all.
+  sqlite.prepare("UPDATE board_meta SET total = 400 WHERE sync_version = ?").run(ACTIVE);
+
+  await assert.rejects(
+    run(0, { maxPages: 7 }),
+    /Refusing to publish 20261123T00: the upstream lists 430 items, against 1600 in the active version/
+  );
+  assert.equal(state("active_sync_version"), ACTIVE);
+  assert.equal(state("prev_sync_version"), PREV);
+  assert.equal(rows("episodes_rank", PREV), 2, "the published versions are left alone");
+  assert.equal(runRow().status, "running");
+  assert.equal(runRow().last_error, "Refusing to publish 20261123T00: the upstream lists 430 items, against 1600 in the active version");
 });
 
 test("a trigger that arrives while the previous invocation still runs waits for it", async () => {

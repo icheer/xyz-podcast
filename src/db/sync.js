@@ -38,7 +38,12 @@ export const MAX_PAGES_PER_INVOCATION = 35;
 // One page is a 12s upstream timeout plus one D1 batch at most, so a lock that has
 // not been refreshed for this long belongs to an invocation that is gone.
 const LOCK_MS = 90_000;
-const MAX_RETRIES = 10;
+const MAX_RETRY_BACKOFF_MS = 16 * 60_000;
+
+/** How long the run waits after its `failures`-th failed attempt in a row. */
+function retryBackoffMs(failures) {
+  return Math.min(2 ** failures * 60_000, MAX_RETRY_BACKOFF_MS);
+}
 
 const XYZ_HEADERS = {
   "User-Agent":
@@ -383,9 +388,6 @@ export async function runSyncBatch(db, options = {}) {
   if (run?.status === "completed") {
     return { skipped: true, reason: "already_completed", run, done: true };
   }
-  if (run?.status === "failed" && !force) {
-    return { skipped: true, reason: "max_retries_exceeded", run, done: false };
-  }
 
   // Taking the lock is one conditional statement, so two invocations that start
   // together cannot both get it. `changes` tells which one did.
@@ -415,14 +417,15 @@ export async function runSyncBatch(db, options = {}) {
     if (current?.status === "completed") {
       return { skipped: true, reason: "already_completed", run: current, done: true };
     }
-    return { skipped: true, reason: "locked", run: current, done: false };
+    // A lock held by a run whose last attempt failed is the wait before its retry.
+    return { skipped: true, reason: current?.status === "failed" ? "backoff" : "locked", run: current, done: false };
   }
 
   let currentBoard = run?.current_board || BOARD_ORDER[0];
   let currentOffset = Number(run?.current_offset) || 0;
   let pagesFetchedTotal = Number(run?.pages_fetched) || 0;
   let itemsWrittenTotal = Number(run?.items_written) || 0;
-  let retryCount = Number(run?.retry_count) || 0;
+  const failuresBefore = Number(run?.retry_count) || 0;
   const boardTotals = safeJsonParse(run?.board_totals_json, {}) || {};
 
   let batchPages = 0;
@@ -437,6 +440,13 @@ export async function runSyncBatch(db, options = {}) {
       const data = await fetchBoardPage(fetchFn, currentBoard, currentOffset, PAGE_LIMIT);
       const items = data.items || [];
       const total = Number.isFinite(Number(data.total)) ? Number(data.total) : currentOffset + items.length;
+      // An empty answer in the middle of a board is not the end of the board:
+      // taking it for one would publish the run with the rest of the board missing.
+      if (items.length === 0 && currentOffset < total) {
+        throw new Error(
+          `Upstream ${currentBoard} offset=${currentOffset} returned an empty page before the end of the board (${currentOffset} of ${total})`
+        );
+      }
       const nextOffset = currentOffset + items.length;
       const boardDone = items.length === 0 || nextOffset >= total;
       const nextBoard = boardDone ? nextBoardAfter(currentBoard) : currentBoard;
@@ -502,13 +512,21 @@ export async function runSyncBatch(db, options = {}) {
     if (completedAll) {
       const finishedIso = new Date(clock().getTime()).toISOString();
       let prevActive = null;
+      let previousItems = 0;
       let genresJson = null;
       try {
-        const [activeRow, ...genreResults] = await db.batch([
+        const [activeRow, previousItemsRow, ...genreResults] = await db.batch([
           db.prepare("SELECT value FROM app_state WHERE key = ?1").bind(ACTIVE_VERSION_KEY),
+          db
+            .prepare(
+              `SELECT COALESCE(SUM(total), 0) AS items FROM board_meta
+                WHERE sync_version = (SELECT value FROM app_state WHERE key = ?1)`
+            )
+            .bind(ACTIVE_VERSION_KEY),
           ...boardGenreStatements(db, runId),
         ]);
         prevActive = activeRow?.results?.[0]?.value || null;
+        previousItems = Number(previousItemsRow?.results?.[0]?.items) || 0;
         genresJson = JSON.stringify(collectBoardGenres(genreResults));
       } catch {
         // The genre cache is optional (the meta endpoint recomputes it); the
@@ -516,6 +534,16 @@ export async function runSyncBatch(db, options = {}) {
         prevActive =
           (await db.prepare("SELECT value FROM app_state WHERE key = ?1").bind(ACTIVE_VERSION_KEY).first())
             ?.value || null;
+      }
+
+      // Publishing replaces the list and removes what it supersedes. A run that
+      // came back with a fraction of the items the active version has is not a
+      // new day of the same boards, so the active version stays.
+      const listedItems = Object.values(boardTotals).reduce((sum, board) => sum + (Number(board.total) || 0), 0);
+      if (previousItems > 0 && listedItems < previousItems / 2) {
+        throw new Error(
+          `Refusing to publish ${runId}: the upstream lists ${listedItems} items, against ${previousItems} in the active version`
+        );
       }
 
       // Marking the run completed and switching to it commit together, with
@@ -551,16 +579,25 @@ export async function runSyncBatch(db, options = {}) {
       }
     }
   } catch (err) {
-    retryCount += 1;
-    const status = retryCount >= MAX_RETRIES ? "failed" : "running";
-    // The cursor was saved with the last page that made it, so only the failure
-    // itself is recorded, and only while this invocation still holds the lock.
+    // Saving a page resets the failure count, so an attempt that saved some and
+    // then failed only leaves the error for the status endpoint and is retried at
+    // the next trigger. One that saved nothing counts as a failed attempt and
+    // keeps the triggers off for a while, longer each time.
+    const failures = batchPages === 0 ? failuresBefore + 1 : 0;
+    const failedAt = clock().getTime();
     await db
       .prepare(
-        `UPDATE sync_runs SET status = ?2, retry_count = ?3, last_error = ?4, locked_until = 0
-          WHERE run_id = ?1 AND locked_until = ?5`
+        `UPDATE sync_runs SET status = ?2, retry_count = ?3, last_error = ?4, locked_until = ?5
+          WHERE run_id = ?1 AND locked_until = ?6`
       )
-      .bind(runId, status, retryCount, err?.message || String(err), myLockUntil)
+      .bind(
+        runId,
+        failures > 0 ? "failed" : "running",
+        failures,
+        err?.message || String(err),
+        failures > 0 ? failedAt + retryBackoffMs(failures) : 0,
+        myLockUntil
+      )
       .run()
       .catch((recordErr) => {
         console.error("Could not record the sync failure:", recordErr);
