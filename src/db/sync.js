@@ -1,8 +1,11 @@
 import {
   ACTIVE_VERSION_KEY,
+  ALERT_KEY_PREFIX,
   boardGenreStatements,
   collectBoardGenres,
+  getAppState,
   publishRunStatements,
+  setAppState,
 } from "./schema.js";
 import { safeJsonParse } from "../utils/http.js";
 
@@ -41,6 +44,8 @@ export const MAX_PAGES_PER_INVOCATION = 35;
 export const DAILY_SYNC_HOUR_UTC = 0;
 /** A trigger this long after the daily run started is a catch-up one. */
 export const CATCH_UP_AFTER_MS = 60 * 60_000;
+/** At most one alert per run in this timespan, however many catch-up attempts fail in it. */
+export const ALERT_EVERY_MS = 4 * 60 * 60_000;
 // One page is a 12s upstream timeout plus one D1 batch at most, so a lock that has
 // not been refreshed for this long belongs to an invocation that is gone.
 const LOCK_MS = 90_000;
@@ -49,6 +54,30 @@ const MAX_RETRY_BACKOFF_MS = 16 * 60_000;
 /** How long the run waits after its `failures`-th failed attempt in a row. */
 function retryBackoffMs(failures) {
   return Math.min(2 ** failures * 60_000, MAX_RETRY_BACKOFF_MS);
+}
+
+/**
+ * Tell `onAlert` that a catch-up attempt failed, unless that was already done
+ * for this run recently. The morning window stays quiet: the catch-up windows
+ * are there to take care of a bad morning without waking anyone up.
+ */
+async function reportFailedCatchUp(db, { runId, onAlert, failedAt, pages, items, error }) {
+  if (typeof onAlert !== "function") return;
+  // Upstream errors end in a period of their own.
+  const reason = String(error?.message || error).replace(/[.。]\s*$/, "");
+  const message =
+    `xyz-podcast 榜单同步没有完成（${runId}）：已同步 ${pages} 页、${items} 条，最近错误：${reason}。` +
+    "这一次没有发布新的榜单，之后的定时触发会继续重试。";
+  try {
+    const key = `${ALERT_KEY_PREFIX}${runId}`;
+    const lastSentAt = Number((await getAppState(db, key))?.value) || 0;
+    if (failedAt - lastSentAt < ALERT_EVERY_MS) return;
+    // Marked only once it went out, so an endpoint that was down is tried again.
+    if ((await onAlert(message)) === false) return;
+    await setAppState(db, key, String(failedAt), new Date(failedAt).toISOString());
+  } catch (err) {
+    console.error("Could not send the sync alert:", err);
+  }
 }
 
 const XYZ_HEADERS = {
@@ -401,6 +430,7 @@ export async function runSyncBatch(db, options = {}) {
     force = false,
     slotOverride = null,
     runIdOverride = null,
+    onAlert = null,
   } = options;
 
   const safeMaxPages = Math.max(
@@ -533,7 +563,7 @@ export async function runSyncBatch(db, options = {}) {
         // The lock expired and another invocation moved the run on. Its cursor
         // stands; the rows written above are the same ones it writes.
         const current = await db.prepare("SELECT * FROM sync_runs WHERE run_id = ?1").bind(runId).first();
-        return { skipped: true, reason: "taken_over", run: current, done: false };
+        return { skipped: true, reason: "taken_over", catchUp, run: current, done: false };
       }
       // A batch that rolled back did not write this lock value either.
       if (keepLock) myLockUntil = pageLockUntil;
@@ -613,7 +643,7 @@ export async function runSyncBatch(db, options = {}) {
       ]);
       if (Number(published[0]?.meta?.changes) !== 1) {
         const current = await db.prepare("SELECT * FROM sync_runs WHERE run_id = ?1").bind(runId).first();
-        return { skipped: true, reason: "taken_over", run: current, done: false };
+        return { skipped: true, reason: "taken_over", catchUp, run: current, done: false };
       }
     }
   } catch (err) {
@@ -622,7 +652,7 @@ export async function runSyncBatch(db, options = {}) {
     // switch-over starts a new streak at one.
     const failures = failedAttempt ? (batchPages === 0 ? failuresBefore + 1 : 1) : 0;
     const failedAt = clock().getTime();
-    await db
+    const recorded = await db
       .prepare(
         `UPDATE sync_runs SET status = ?2, retry_count = ?3, last_error = ?4, locked_until = ?5
           WHERE run_id = ?1 AND locked_until = ?6`
@@ -638,7 +668,19 @@ export async function runSyncBatch(db, options = {}) {
       .run()
       .catch((recordErr) => {
         console.error("Could not record the sync failure:", recordErr);
+        return null;
       });
+    // Only the invocation whose failure this is reports it, not one that was taken over.
+    if (Number(recorded?.meta?.changes) === 1 && failedAttempt && catchUp) {
+      await reportFailedCatchUp(db, {
+        runId,
+        onAlert,
+        failedAt,
+        pages: pagesFetchedTotal,
+        items: itemsWrittenTotal,
+        error: err,
+      });
+    }
     throw err;
   }
 

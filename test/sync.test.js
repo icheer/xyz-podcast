@@ -547,6 +547,136 @@ test("a day whose morning window was missed is caught up at 10:00", async () => 
   assert.deepEqual([runRow().status, state("active_sync_version")], ["completed", RUN]);
 });
 
+test("a failed catch-up attempt is reported once; the morning window is not", async () => {
+  let healthy = false;
+  const alerts = [];
+  const { upstream, run, state } = setup(LIVE_TOTALS, { failOn: () => (healthy ? 0 : 503) });
+  const trigger = (minute) =>
+    run(minute, {
+      onAlert: async (message) => {
+        alerts.push({ minute, message });
+        return true;
+      },
+    }).catch(() => {});
+
+  // A bad morning is what the catch-up windows are for.
+  for (let minute = 0; minute <= 30; minute += 2) await trigger(minute);
+  assert.equal(alerts.length, 0);
+
+  // The 10:00 window tries twice (the waits are at their maximum by now) and reports the first failure.
+  for (let minute = 120; minute <= 150; minute += 2) await trigger(minute);
+  assert.deepEqual(
+    alerts.map((alert) => alert.minute),
+    [120]
+  );
+  assert.equal(
+    alerts[0].message,
+    "xyz-podcast 榜单同步没有完成（20261123T00）：已同步 0 页、0 条，最近错误：Upstream episodes offset=0 failed with HTTP 503。" +
+      "这一次没有发布新的榜单，之后的定时触发会继续重试。"
+  );
+  assert.equal(state(`sync_alert:${RUN}`), String(at(120).getTime()));
+
+  // Four hours later it is worth saying again.
+  await trigger(600);
+  assert.deepEqual(
+    alerts.map((alert) => alert.minute),
+    [120, 600]
+  );
+
+  // An evening attempt that gets through is good news, which is no news.
+  healthy = true;
+  const fetchedBefore = upstream.calls.length;
+  await trigger(616);
+  assert.equal(upstream.calls.length - fetchedBefore, 15);
+  assert.equal(alerts.length, 2);
+});
+
+test("an alert that did not go out is not counted as sent", async () => {
+  const alerts = [];
+  const { run, state } = setup(LIVE_TOTALS, { failOn: () => 503 });
+  const delivered = [false, true, true];
+  const trigger = (minute) =>
+    run(minute, {
+      onAlert: async () => {
+        alerts.push(minute);
+        return delivered[alerts.length - 1];
+      },
+    }).catch(() => {});
+
+  await trigger(120);
+  await trigger(122);
+  assert.deepEqual(alerts, [120, 122], "the endpoint is tried again at the next failed attempt");
+  assert.equal(state(`sync_alert:${RUN}`), String(at(122).getTime()));
+  await trigger(126);
+  assert.deepEqual(alerts, [120, 122], "then it counts as sent");
+});
+
+test("publishing a run clears the alert marks", async () => {
+  const { sqlite, run, state } = setup(SMALL_TOTALS);
+  const insert = sqlite.prepare("INSERT INTO app_state (key, value, updated_at) VALUES (?, ?, ?)");
+  for (const key of ["sync_alert:20261122T00", `sync_alert:${RUN}`]) {
+    insert.run(key, String(at(0).getTime()), at(0).toISOString());
+  }
+
+  const finished = await run(120, { maxPages: 7 });
+  assert.equal(finished.done, true);
+  // The run has nothing left to report, and the runs before it are history.
+  assert.equal(state("sync_alert:20261122T00"), null);
+  assert.equal(state(`sync_alert:${RUN}`), null);
+});
+
+test("a catch-up attempt that saved pages before failing is not reported", async () => {
+  const alerts = [];
+  const { run } = setup(LIVE_TOTALS, { failOn: (call, request) => (request === 3 ? 503 : 0) });
+  const onAlert = async (message) => {
+    alerts.push(message);
+    return true;
+  };
+
+  // Two pages saved, then a failure: the next trigger simply carries on.
+  await assert.rejects(run(120, { onAlert }), /503/);
+  assert.equal(alerts.length, 0);
+});
+
+test("a stale invocation does not report a failure it could not record", async () => {
+  const alerts = [];
+  const { sqlite, db, upstream, run } = setup(LIVE_TOTALS);
+  const onAlert = async (message) => {
+    alerts.push(message);
+    return true;
+  };
+  // During the second page another invocation takes the run over, then this one's write fails.
+  let fetched = 0;
+  const fetchFn = async (url) => {
+    fetched += 1;
+    if (fetched === 2) {
+      sqlite
+        .prepare("UPDATE sync_runs SET locked_until = ? WHERE run_id = ?")
+        .run(at(120).getTime() + 10 * 60_000, RUN);
+    }
+    return upstream.fetchFn(url);
+  };
+  const prepare = db.prepare.bind(db);
+  const batch = db.batch.bind(db);
+  const cursorStatements = new WeakSet();
+  db.prepare = (text) => {
+    const statement = prepare(text);
+    if (text.includes("SET status = 'running', current_board")) cursorStatements.add(statement);
+    return statement;
+  };
+  let pageBatches = 0;
+  db.batch = async (statements) => {
+    if (statements.some((statement) => cursorStatements.has(statement)) && (pageBatches += 1) === 2) {
+      throw new Error("D1_ERROR: over quota");
+    }
+    return batch(statements);
+  };
+
+  await assert.rejects(run(120, { onAlert, fetchFn }), /over quota/);
+  assert.equal(alerts.length, 0);
+  assert.equal(sqlite.prepare("SELECT last_error FROM sync_runs WHERE run_id = ?").get(RUN).last_error, null);
+});
+
 test("a trigger that arrives while the previous invocation still runs waits for it", async () => {
   const { sqlite, db, upstream, run } = setup(LIVE_TOTALS);
 
@@ -600,26 +730,34 @@ test("a trigger that arrives while the previous invocation still runs waits for 
 });
 
 test("an invocation whose lock expired stops as soon as another one has moved the run on", async () => {
-  const { sqlite, upstream, run, runRow, cursor } = setup(LIVE_TOTALS);
-  let fetched = 0;
-  const fetchFn = async (url) => {
-    fetched += 1;
-    if (fetched === 2) {
-      // Its lock expired during a slow page, and another invocation carried on.
-      sqlite
-        .prepare(
-          "UPDATE sync_runs SET pages_fetched = pages_fetched + 5, current_board = 'podcasts', current_offset = 500, locked_until = ? WHERE run_id = ?"
-        )
-        .run(at(0).getTime() + 10 * 60_000, RUN);
-    }
-    return upstream.fetchFn(url);
-  };
+  for (const [minute, catchUp] of [
+    [0, false],
+    [120, true],
+  ]) {
+    const { sqlite, upstream, run, runRow, cursor } = setup(LIVE_TOTALS);
+    let fetched = 0;
+    const fetchFn = async (url) => {
+      fetched += 1;
+      if (fetched === 2) {
+        // Its lock expired during a slow page, and another invocation carried on.
+        sqlite
+          .prepare(
+            "UPDATE sync_runs SET pages_fetched = pages_fetched + 5, current_board = 'podcasts', current_offset = 500, locked_until = ? WHERE run_id = ?"
+          )
+          .run(at(minute).getTime() + 10 * 60_000, RUN);
+      }
+      return upstream.fetchFn(url);
+    };
 
-  const result = await run(0, { fetchFn });
-  assert.deepEqual({ skipped: result.skipped, reason: result.reason, fetched }, { skipped: true, reason: "taken_over", fetched: 2 });
-  assert.equal(cursor(), "podcasts@500");
-  assert.equal(runRow().pages_fetched, 6);
-  assert.equal(runRow().locked_until, at(0).getTime() + 10 * 60_000, "the other invocation keeps its lock");
+    const result = await run(minute, { fetchFn });
+    assert.deepEqual(
+      { skipped: result.skipped, reason: result.reason, catchUp: result.catchUp, fetched },
+      { skipped: true, reason: "taken_over", catchUp, fetched: 2 }
+    );
+    assert.equal(cursor(), "podcasts@500");
+    assert.equal(runRow().pages_fetched, 6);
+    assert.equal(runRow().locked_until, at(minute).getTime() + 10 * 60_000, "the other invocation keeps its lock");
+  }
 });
 
 test("an invocation whose lock expired cannot record its failure over the new owner", async () => {
@@ -692,7 +830,10 @@ test("a run that lost its lock cannot publish the version or remove another one"
   });
 
   const result = await run(0, { maxPages: 7 });
-  assert.deepEqual({ skipped: result.skipped, reason: result.reason }, { skipped: true, reason: "taken_over" });
+  assert.deepEqual(
+    { skipped: result.skipped, reason: result.reason, catchUp: result.catchUp },
+    { skipped: true, reason: "taken_over", catchUp: false }
+  );
   assert.equal(runRow().status, "running");
   assert.equal(runRow().locked_until, othersLock);
   assert.equal(state("active_sync_version"), ACTIVE);

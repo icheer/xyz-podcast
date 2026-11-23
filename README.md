@@ -106,8 +106,20 @@ Cron 已写在 `wrangler.toml` 中，部署时一并配置，无需自己每天�
 | `ADMIN_KEY` | Worker → 设置 → Variables and Secrets → Secret | 可选：手动同步及同步状态接口鉴权 |
 | `XYZ_RELAY_URL` | Worker → 设置 → Variables and Secrets | 可选：外部 HTML 转发地址，浏览器直连小宇宙失败时的后端兜底 |
 | `XYZ_RELAY_TOKEN` | Worker → 设置 → Variables and Secrets → Secret | 可选：转发服务的 `X-Relay-Token` |
+| `ALERT_WEBHOOK_URL` | Worker → 设置 → Variables and Secrets → Secret | 可选：榜单同步当天没完成时的通知地址，见下方「同步失败通知」 |
 
 普通使用可不配置转发服务；如将非敏感变量写入 `wrangler.toml` 的 `[vars]`，请保持仓库与控制台配置一致。
+
+### 同步失败通知
+
+上午 `08:00` 的同步没有完成时，`10:00` 和 `18:00` 的窗口会接着跑。**兜底窗口里的尝试失败时**（上游报错、数据库写入失败、条目数骤降被拒绝发布等），Worker 会向 `ALERT_WEBHOOK_URL` 发一条通知。上午窗口内的失败不发，同一轮 4 小时内最多一条；不配置这个变量就不发任何通知。配置方式同 `ADMIN_KEY`，修改后需要重新部署才生效。
+
+地址支持两种写法：
+
+- 普通地址：以 `POST` 发送 JSON `{"text": "…"}`，适用于 Slack Incoming Webhook 这类接口。
+- 含 `{text}` 的地址：把消息编码后填进 `{text}` 的位置，以 `GET` 请求，适用于靠 URL 投递的推送服务，例如 Bark 的 `https://api.day.app/<key>/榜单同步/{text}`，或 Server酱的 `https://sctapi.ftqq.com/<sendkey>.send?title=榜单同步未完成&desp={text}`。
+
+每次定时触发的结果和失败原因也会写进 **Workers Logs**（Worker 页面 → **Observability** → **Logs**；`wrangler.toml` 已开启，Free 计划保留 3 天），可按 `Scheduled sync` 检索。
 
 ### 确认定时同步是否完成
 

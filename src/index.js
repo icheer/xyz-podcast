@@ -2,6 +2,7 @@ import { runSyncBatch } from "./db/sync.js";
 import { handleAdminSync, handleAdminSyncStatus } from "./handlers/admin.js";
 import { handleBoardQuery, handleBoardsMeta } from "./handlers/boards.js";
 import { handleEpisodeDetail, handlePodcastDetail } from "./handlers/xiaoyuzhou.js";
+import { sendAlert } from "./utils/alert.js";
 import { errorJson, json } from "./utils/http.js";
 
 export default {
@@ -27,9 +28,24 @@ export default {
   async scheduled(event, env, ctx) {
     const now = event?.scheduledTime ? new Date(event.scheduledTime) : new Date();
     ctx.waitUntil(
-      runSyncBatch(env.DB, { now }).catch((err) => {
-        console.error("Scheduled sync batch failed:", err);
-      })
+      runSyncBatch(env.DB, { now, onAlert: (message) => sendAlert(env, message) })
+        .then((result) => {
+          console.log({
+            message: result.skipped
+              ? `Scheduled sync skipped: ${result.reason}`
+              : result.done
+                ? "Scheduled sync completed"
+                : "Scheduled sync progressed",
+            run: result.run?.run_id,
+            catchUp: result.catchUp,
+            pages: result.batchPages,
+            fetched: result.run?.pages_fetched,
+            failures: result.run?.retry_count,
+          });
+        })
+        .catch((err) => {
+          console.error("Scheduled sync batch failed:", err);
+        })
     );
   },
 };

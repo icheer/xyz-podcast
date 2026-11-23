@@ -3,6 +3,8 @@ import { safeJsonParse } from "../utils/http.js";
 export const ACTIVE_VERSION_KEY = "active_sync_version";
 const PREV_VERSION_KEY = "prev_sync_version";
 const GENRES_KEY_PREFIX = "genres:";
+// When the last alert about a run went out, one row per run that has been reported.
+export const ALERT_KEY_PREFIX = "sync_alert:";
 
 /**
  * Read a key from app_state table.
@@ -171,7 +173,9 @@ export function publishRunStatements(db, runId, { genresJson = null, prevActiveV
         `DELETE FROM app_state
           WHERE key LIKE '${GENRES_KEY_PREFIX}%' AND key NOT IN (${keptGenreKeys}) AND ${published}`
       )
-      .bind(runId)
+      .bind(runId),
+    // A completed run has nothing left to report, and the runs before it are history.
+    db.prepare(`DELETE FROM app_state WHERE key LIKE '${ALERT_KEY_PREFIX}%' AND ${published}`).bind(runId)
   );
   return statements;
 }
