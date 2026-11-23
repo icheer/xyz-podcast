@@ -32,9 +32,15 @@ export const DEFAULT_MAX_PAGES_PER_BATCH = 15;
 /**
  * Most pages one invocation may fetch. A page costs one upstream request and one
  * D1 query, the Free plan allows 50 of each per invocation, and starting the run,
- * publishing the version and recording a failure take a few more.
+ * publishing the version and recording a failure take a few more. The default is
+ * lower because the Free plan also allows 10 ms of CPU time per Cron Trigger,
+ * and 15 pages is the size that has been running in production.
  */
 export const MAX_PAGES_PER_INVOCATION = 35;
+/** UTC hour of the daily run. Every trigger of the day belongs to it. */
+export const DAILY_SYNC_HOUR_UTC = 0;
+/** A trigger this long after the daily run started is a catch-up one. */
+export const CATCH_UP_AFTER_MS = 60 * 60_000;
 // One page is a 12s upstream timeout plus one D1 batch at most, so a lock that has
 // not been refreshed for this long belongs to an invocation that is gone.
 const LOCK_MS = 90_000;
@@ -178,6 +184,29 @@ export function computeSyncRunKey(date = new Date()) {
     runId: `${yyyy}${mm}${dd}T${hh}`,
     slot: hh,
   };
+}
+
+/**
+ * The run a scheduled time belongs to. The cron keeps firing for the same run
+ * later in the day, so a trigger at 10:00 continues the 08:00 run (Beijing time)
+ * instead of starting another one.
+ */
+export function computeDailyRunKey(date = new Date()) {
+  const start = dailyRunStart(date.getTime());
+  const started = new Date(start);
+  const slot = String(DAILY_SYNC_HOUR_UTC).padStart(2, "0");
+  return {
+    runId: `${started.getUTCFullYear()}${String(started.getUTCMonth() + 1).padStart(2, "0")}${String(
+      started.getUTCDate()
+    ).padStart(2, "0")}T${slot}`,
+    slot,
+  };
+}
+
+/** Start of the daily run that `nowMs` belongs to, in milliseconds. */
+export function dailyRunStart(nowMs) {
+  const shifted = new Date(nowMs - DAILY_SYNC_HOUR_UTC * 3_600_000);
+  return Date.UTC(shifted.getUTCFullYear(), shifted.getUTCMonth(), shifted.getUTCDate(), DAILY_SYNC_HOUR_UTC);
 }
 
 function nextBoardAfter(board) {
@@ -380,13 +409,16 @@ export async function runSyncBatch(db, options = {}) {
   );
   const nowMs = now.getTime();
   const nowIso = now.toISOString();
-  const key = computeSyncRunKey(now);
+  const key = computeDailyRunKey(now);
   const runId = runIdOverride || (force ? `${key.runId}-m${nowMs}` : key.runId);
   const slot = slotOverride || (force ? "manual" : key.slot);
+  // Later in the day the cron comes back to a run that is not finished, whether
+  // it failed in the morning or never got the chance to start.
+  const catchUp = !force && !slotOverride && !runIdOverride && nowMs - dailyRunStart(nowMs) > CATCH_UP_AFTER_MS;
 
   const run = await db.prepare("SELECT * FROM sync_runs WHERE run_id = ?1").bind(runId).first();
   if (run?.status === "completed") {
-    return { skipped: true, reason: "already_completed", run, done: true };
+    return { skipped: true, reason: "already_completed", catchUp, run, done: true };
   }
 
   // Taking the lock is one conditional statement, so two invocations that start
@@ -415,10 +447,11 @@ export async function runSyncBatch(db, options = {}) {
     const wasLocked = Boolean(run) && Number(run.locked_until) > lockUntil - LOCK_MS;
     const current = wasLocked ? run : await db.prepare("SELECT * FROM sync_runs WHERE run_id = ?1").bind(runId).first();
     if (current?.status === "completed") {
-      return { skipped: true, reason: "already_completed", run: current, done: true };
+      return { skipped: true, reason: "already_completed", catchUp, run: current, done: true };
     }
     // A lock held by a run whose last attempt failed is the wait before its retry.
-    return { skipped: true, reason: current?.status === "failed" ? "backoff" : "locked", run: current, done: false };
+    const reason = current?.status === "failed" ? "backoff" : "locked";
+    return { skipped: true, reason, catchUp, run: current, done: false };
   }
 
   let currentBoard = run?.current_board || BOARD_ORDER[0];
@@ -433,6 +466,10 @@ export async function runSyncBatch(db, options = {}) {
   let completedAll = false;
   // The lock value this invocation last wrote; only the invocation that holds it may record a failure.
   let myLockUntil = lockUntil;
+  // True once the pages are fetched and the run is being published. Failing
+  // there leaves the run where it is, so retrying only makes sense after a
+  // wait, as after a page that could not be fetched at all.
+  let publishing = false;
 
   try {
     while (batchPages < safeMaxPages && currentBoard) {
@@ -509,6 +546,7 @@ export async function runSyncBatch(db, options = {}) {
       currentOffset = boardDone ? 0 : nextOffset;
     }
 
+    publishing = true;
     if (completedAll) {
       const finishedIso = new Date(clock().getTime()).toISOString();
       let prevActive = null;
@@ -579,11 +617,10 @@ export async function runSyncBatch(db, options = {}) {
       }
     }
   } catch (err) {
-    // Saving a page resets the failure count, so an attempt that saved some and
-    // then failed only leaves the error for the status endpoint and is retried at
-    // the next trigger. One that saved nothing counts as a failed attempt and
-    // keeps the triggers off for a while, longer each time.
-    const failures = batchPages === 0 ? failuresBefore + 1 : 0;
+    const failedAttempt = batchPages === 0 || publishing;
+    // Pages saved in this attempt have already cleared the count, so a failed
+    // switch-over starts a new streak at one.
+    const failures = failedAttempt ? (batchPages === 0 ? failuresBefore + 1 : 1) : 0;
     const failedAt = clock().getTime();
     await db
       .prepare(
@@ -592,10 +629,10 @@ export async function runSyncBatch(db, options = {}) {
       )
       .bind(
         runId,
-        failures > 0 ? "failed" : "running",
+        failedAttempt ? "failed" : "running",
         failures,
         err?.message || String(err),
-        failures > 0 ? failedAt + retryBackoffMs(failures) : 0,
+        failedAttempt ? failedAt + retryBackoffMs(failures) : 0,
         myLockUntil
       )
       .run()
@@ -608,6 +645,7 @@ export async function runSyncBatch(db, options = {}) {
   const updatedRun = await db.prepare("SELECT * FROM sync_runs WHERE run_id = ?1").bind(runId).first();
   return {
     skipped: false,
+    catchUp,
     done: completedAll,
     batchPages,
     batchItems,

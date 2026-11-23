@@ -20,8 +20,13 @@ const RETURNS_ROWS = /^\s*(SELECT|WITH)\b/i;
 
 // Like D1's `meta`: `changes` is the number of rows a statement wrote, which is
 // how the sync state machine tells whether a conditional statement applied.
-function executeRaw(sqlite, sql, params) {
-  const stmt = sqlite.prepare(sql);
+function executeRaw(sqlite, statements, sql, params) {
+  // The sync writes a few statements thousands of times: prepare each of them once.
+  let stmt = statements.get(sql);
+  if (!stmt) {
+    stmt = sqlite.prepare(sql);
+    statements.set(sql, stmt);
+  }
   if (RETURNS_ROWS.test(sql)) {
     return { success: true, results: stmt.all(...params), meta: { changes: 0, rows_written: 0 } };
   }
@@ -38,12 +43,13 @@ function executeRaw(sqlite, sql, params) {
 export function createD1Binding(sqlite) {
   const queries = [];
   let roundTrips = 0;
+  const statements = new Map();
 
   function prepare(sql) {
     let params = [];
     const execute = () => {
       queries.push(sql);
-      return executeRaw(sqlite, sql, params);
+      return executeRaw(sqlite, statements, sql, params);
     };
     const api = {
       bind(...values) {

@@ -80,7 +80,7 @@ migrations_dir = "migrations"
 
 ### 3. 等待首次榜单同步
 
-部署成功后，先打开 `https://你的域名/api/health` 确认服务和数据库连接正常。首次定时同步在北京时间下一次 `08:00` 开始，通常约 12 分钟完成并发布四个榜单。若在同步窗口末尾部署且本轮未完成，次日 `08:00` 会发起新一轮同步。
+部署成功后，先打开 `https://你的域名/api/health` 确认服务和数据库连接正常。首次定时同步在北京时间下一次 `08:00` 开始，通常约 12 分钟完成并发布四个榜单。这一轮当天没有完成时（上游故障、错过窗口等），`10:00` 和 `18:00` 会各再试半小时；仍未完成就等次日 `08:00` 的新一轮，期间页面继续显示上一个完整版本。
 
 Cron 已写在 `wrangler.toml` 中，部署时一并配置，无需自己每天操作。初次设置或变更 Cron 可能需要最多 15 分钟传播，参见 [Cron Triggers](https://developers.cloudflare.com/workers/configuration/cron-triggers/)。希望立即灌入数据的进阶用户，也可配置下面的 `ADMIN_KEY` 后调用管理 API。
 
@@ -124,7 +124,7 @@ SELECT value AS active_sync_version
 FROM app_state WHERE key = 'active_sync_version';
 ```
 
-`status = completed` 且 `active_sync_version` 等于该 `run_id` 表示发布成功。`running` 表示仍在分批接力，`failed` 时查看 `last_error`。数据库时间为 UTC，北京时间需加 8 小时。也可以使用携带 `X-Admin-Key` 的 `GET /api/admin/sync/status` 查询。
+`status = completed` 且 `active_sync_version` 等于该 `run_id` 表示发布成功。`running` 表示仍在分批接力；`failed` 表示最近一次尝试失败，`retry_count` 是连续失败的次数，原因看 `last_error`，`locked_until`（毫秒时间戳）是下一次允许重试的时间，到点后的触发会自动接着跑。数据库时间为 UTC，北京时间需加 8 小时。也可以使用携带 `X-Admin-Key` 的 `GET /api/admin/sync/status` 查询。
 
 <details>
 <summary>可选：使用本地终端部署（开发者）</summary>
@@ -158,7 +158,7 @@ flowchart LR
     U -->|"CORS 直连解析 __NEXT_DATA__"| XYZ["www.xiaoyuzhoufm.com"]
     U -.->|"可选兜底 /api/xiaoyuzhou/*"| CF
     U -->|"&lt;audio&gt; 流媒体 Range 播放"| CDN["media.xyzcdn.net"]
-    CRON["Cron Trigger (*/2 0 * * *)"] -->|"分批接力状态机 (15 页/批)"| RANK["xyzrank.com API"]
+    CRON["Cron Trigger (0-30/2 0,2,10 * * *)"] -->|"分批接力状态机 (15 页/批)"| RANK["xyzrank.com API"]
     CRON -->|"UPSERT + 原子切换版本"| D1
 ```
 
@@ -166,7 +166,8 @@ flowchart LR
 
 1. **兼容 Cloudflare Free Plan 的分批接力同步 (`src/db/sync.js`)**
    - `xyzrank.com` 4 个接口单页上限为 100 条（全量约 9,100+ 条，合计 ~93 页），超出 Workers Free Plan 单次 50 次外部请求上限。
-   - 采用每日一次的 Cron 窗口 `*/2 0 * * *`（北京时间 `08:00–08:58` 每 2 分钟触发），配合 D1 `sync_runs` 状态机每批仅拉取 15 页，约 12 分钟完成全量同步后原子切换 `active_sync_version`，同窗口剩余触发直接退出。
+   - Cron 为 `0-30/2 0,2,10 * * *`：北京时间 `08:00–08:30` 每 2 分钟触发，配合 D1 `sync_runs` 状态机每批仅拉取 15 页，约 12 分钟完成全量同步后原子切换 `active_sync_version`。`10:00` 和 `18:00` 再各开半小时窗口，当天这一轮没完成就接着跑；已完成时每次触发只读一次。每页一次 D1 查询，单次调用最多 18 次左右，Free Plan 上限为 50。
+   - 失败按连续没有进展的次数计并逐步退避，存下一页即清零；当天不会被永久标记为放弃。榜单中途返回空页、或新一轮条目数不到当前版本一半时，不发布残缺版本。
    - 榜单表使用 `WITHOUT ROWID` 联合主键，保留排名索引和播客分类索引。以约 9,100 条的规模估算，每天同步及清理旧快照约消耗 35.8k 行写入。
 2. **浏览器直连 CORS 抓取 + 共享解析器 (`public/js/xyzParser.js`)**
    - `www.xiaoyuzhoufm.com` 会拒绝携带 Cloudflare Workers 自动注入的 `CF-Worker` 请求头的出站请求（`403`），但对浏览器端简单 `GET` 请求动态回显 `Access-Control-Allow-Origin`。
@@ -239,7 +240,7 @@ npm run dev
 
 ### 3. 本地灌入榜单测试数据
 
-启动 `npm run dev` 后，可循环调用管理端同步接口将 `xyzrank.com` 数据拉取到本地 D1：
+启动 `npm run dev` 后，可循环调用管理端同步接口将 `xyzrank.com` 数据拉取到本地 D1。每次调用推进当天这一轮同步；返回 `"done":true` 表示已发布，`"skipped":true` 表示当天这一轮已经完成（要重新抓取需加 `"force":true`）：
 
 ```bash
 for i in $(seq 1 8); do
@@ -248,14 +249,14 @@ for i in $(seq 1 8); do
     -H "X-Admin-Key: local-dev-admin-key" \
     -d '{"maxPages":15}')
   echo "$RESP"
-  echo "$RESP" | grep -q '"done":true' && break
+  echo "$RESP" | grep -q '"done":true\|"skipped":true' && break
 done
 ```
 
 或测试 Cron 调度入口（需使用 `npm run dev:scheduled` 启动）：
 
 ```bash
-curl "http://127.0.0.1:8787/__scheduled?cron=*/2+0+*+*+*"
+curl "http://127.0.0.1:8787/__scheduled?cron=0-30/2+0,2,10+*+*+*"
 ```
 
 ### 4. 运行单元测试与代码检查
@@ -279,7 +280,7 @@ npm run check               # 等于上面两条；npm run deploy 前会自动�
 | `GET /api/boards/:board` | 无 | 查询榜单（支持 `offset`、`limit`、`q`、`genre`、`sort`、`dir`） |
 | `GET /api/xiaoyuzhou/podcast/:pid` | 无 | 播客频道页解析兜底接口 |
 | `GET /api/xiaoyuzhou/episode/:eid` | 无 | 单集播放页解析兜底接口 |
-| `POST /api/admin/sync` | `X-Admin-Key` | 手动触发单批接力同步 |
+| `POST /api/admin/sync` | `X-Admin-Key` | 推进当天这一轮同步：`{ maxPages?, force?, runId? }`，默认 15 页、最多 35 页，`force` 另起一轮 |
 | `GET /api/admin/sync/status` | `X-Admin-Key` | 查看历史同步批次与状态 |
 
 ---

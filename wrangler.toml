@@ -15,4 +15,5 @@ database_id = "224bbab0-b5e7-4547-9735-9038d63b8f53"
 migrations_dir = "migrations"
 
 [triggers]
-crons = ["0-30/2 0 * * *"]
+# 08:00-08:30 Beijing time, then again at 10:00 and 18:00 if the run is not finished.
+crons = ["0-30/2 0,2,10 * * *"]

@@ -1,7 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import {
   BOARD_ORDER,
+  computeDailyRunKey,
   computeSyncRunKey,
   extractEpisodeId,
   extractPodcastLinkInfo,
@@ -83,6 +85,22 @@ test("normalizePodcastItem extracts pid and defaults safely", () => {
 test("computeSyncRunKey uses UTC slot", () => {
   const key = computeSyncRunKey(new Date("2026-11-17T00:06:00Z"));
   assert.deepEqual(key, { runId: "20261117T00", slot: "00" });
+});
+
+test("computeDailyRunKey gives every trigger of the day the run of the 08:00 slot", () => {
+  const runIdAt = (iso) => computeDailyRunKey(new Date(iso));
+  assert.deepEqual(runIdAt("2026-11-17T00:04:00Z"), { runId: "20261117T00", slot: "00" });
+  assert.equal(runIdAt("2026-11-17T02:30:00Z").runId, "20261117T00", "10:30 in Beijing");
+  assert.equal(runIdAt("2026-11-17T10:30:00Z").runId, "20261117T00", "18:30 in Beijing");
+  assert.equal(runIdAt("2026-11-17T23:59:59Z").runId, "20261117T00");
+  assert.equal(runIdAt("2026-11-18T00:00:00Z").runId, "20261118T00", "the next day has its own");
+});
+
+test("the cron keeps the morning window and comes back twice for a run that is not finished", () => {
+  const toml = readFileSync(new URL("../wrangler.toml", import.meta.url), "utf8");
+  const crons = JSON.parse(toml.match(/^crons = (\[.*\])$/m)[1]);
+  // 08:00-08:30, 10:00-10:30 and 18:00-18:30 in Beijing time, every 2 minutes.
+  assert.deepEqual(crons, ["0-30/2 0,2,10 * * *"]);
 });
 
 const DAY = Date.parse("2026-11-23T00:00:00Z");
@@ -476,8 +494,57 @@ test("a run that came back with a fraction of the current list is not published"
   assert.equal(state("active_sync_version"), ACTIVE);
   assert.equal(state("prev_sync_version"), PREV);
   assert.equal(rows("episodes_rank", PREV), 2, "the published versions are left alone");
-  assert.equal(runRow().status, "running");
+  assert.deepEqual([runRow().status, runRow().retry_count], ["failed", 1]);
   assert.equal(runRow().last_error, "Refusing to publish 20261123T00: the upstream lists 430 items, against 1600 in the active version");
+});
+
+test("later triggers of the day continue the same run instead of starting another", async () => {
+  const { sqlite, db, upstream, run, state } = setup(LIVE_TOTALS);
+  const runs = () => sqlite.prepare("SELECT run_id FROM sync_runs ORDER BY run_id").all().map((row) => row.run_id);
+
+  const morning = await run(0);
+  assert.equal(morning.batchPages, 15);
+  assert.equal(morning.catchUp, false);
+
+  // A manual trigger outside the cron advances the same run.
+  const manual = await run(300, { slotOverride: "manual" });
+  assert.equal(manual.batchPages, 15);
+  assert.deepEqual([manual.catchUp, manual.run.pages_fetched, runs().length], [false, 30, 1]);
+
+  // The 10:00 window finds the run 64 pages from the end and finishes it there.
+  const catchUp = [];
+  for (let minute = 120; minute < 150 && !catchUp.at(-1)?.done; minute += 2) {
+    catchUp.push(await run(minute));
+  }
+  assert.equal(catchUp.length, 5);
+  assert.ok(catchUp.every((one) => one.catchUp));
+  assert.deepEqual(runs(), [RUN], "no second version for the day");
+  assert.equal(state("active_sync_version"), RUN);
+
+  // The 18:00 window then costs one query per trigger and fetches nothing.
+  const queriesBefore = db.roundTrips;
+  const fetchedBefore = upstream.calls.length;
+  const evening = await run(360);
+  assert.deepEqual([evening.skipped, evening.reason, evening.catchUp], [true, "already_completed", true]);
+  assert.deepEqual([db.roundTrips - queriesBefore, upstream.calls.length - fetchedBefore], [1, 0]);
+
+  // A forced run is still a run of its own, and never a catch-up.
+  const forced = await run(362, { force: true });
+  assert.deepEqual([forced.catchUp, forced.run.run_id.startsWith(`${RUN}-m`), runs().length], [false, true, 2]);
+});
+
+test("a day whose morning window was missed is caught up at 10:00", async () => {
+  const { upstream, run, runRow, state } = setup(LIVE_TOTALS);
+
+  const catchUp = [];
+  for (let minute = 120; minute < 150 && !catchUp.at(-1)?.done; minute += 2) {
+    catchUp.push(await run(minute));
+  }
+
+  // Nothing had been fetched: the whole board, 93 pages, comes in the first catch-up window.
+  assert.deepEqual(catchUp.map((one) => one.batchPages), [15, 15, 15, 15, 15, 15, 3]);
+  assert.equal(upstream.calls.length, 93);
+  assert.deepEqual([runRow().status, state("active_sync_version")], ["completed", RUN]);
 });
 
 test("a trigger that arrives while the previous invocation still runs waits for it", async () => {
@@ -603,16 +670,17 @@ test("a switch-over that fails is retried with one request and publishes the sam
 
   await assert.rejects(run(0, { maxPages: 7 }), /over quota/);
   assert.equal(state("active_sync_version"), ACTIVE, "the previous version stays in place");
-  assert.equal(runRow().status, "running");
+  // Retrying it fetches nothing new, so it waits like a page that could not be fetched.
+  assert.deepEqual([runRow().status, runRow().retry_count, runRow().locked_until], ["failed", 1, at(2).getTime()]);
   assert.equal(rows("episodes_rank", RUN), 160, "the pages that were fetched stay");
   assert.equal(rows("podcasts_rank", RUN), 270);
-  assert.equal(runRow().locked_until, 0);
 
   const retried = await run(2);
   assert.equal(retried.done, true);
   assert.deepEqual(pages(upstream.calls.slice(7)), ["podcasts@250"], "only the end of the last board is asked for again");
   assert.equal(state("active_sync_version"), RUN);
   assert.equal(rows("podcasts_rank", RUN), 270);
+  assert.equal(runRow().locked_until, 0);
 });
 
 test("a run that lost its lock cannot publish the version or remove another one", async () => {

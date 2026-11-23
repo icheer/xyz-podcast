@@ -173,13 +173,14 @@ xyz-podcast/
 - 全量 4 个榜单共约 9,132 条（~93 页 `limit=100` 请求）。
 - Cloudflare Workers **Free Plan** 每次触发上限为 **50 次外部 `fetch()` subrequest**、**10ms CPU 时间**（注：D1 查询不计入 50 次外部 `fetch` 限额）。
 - 单次 Cron 无法拉完 93 页，因此采用 **时间窗高频脉冲 + D1 状态机接力**：
-  - `wrangler.toml` 配置 `crons = ["*/2 0 * * *"]`，在北京时间 `08:00–08:58` 每 2 分钟触发一次，推进当天的 `YYYYMMDDT00` 同步。
-  - 每次 `scheduled()` 默认最多拉取 **15 页**，为重试预留外部请求额度。
+  - `wrangler.toml` 配置 `crons = ["0-30/2 0,2,10 * * *"]`：北京时间 `08:00–08:30` 每 2 分钟触发一次，推进当天的 `YYYYMMDDT00` 同步；`10:00–10:30` 和 `18:00–18:30` 再各开一个同样的窗口，这一轮没完成就接着跑，已完成则每次触发读 1 次后返回。
+  - 全天只有这一轮：`runId` 由日期和 `08:00` 时段生成，全天的触发和管理接口的非强制调用都推进它，`force` 才另起一轮。
+  - 每次 `scheduled()` 最多拉取 **15 页**，为重试预留外部请求额度。Free Plan 每次触发另有 10 ms CPU 时间，兜底窗口沿用同样的 15 页，不加大批量。
   - **D1 查询预算**：Free Plan 每次 Worker 调用还最多 50 次 D1 查询，一次 `db.batch()` 只算 1 次。状态机每页只花 1 次：该页的榜单行、`board_meta` 和新的游标在同一个 `db.batch` 里提交。满载的一次调用是 2 次启动 + 15 页 + 1 次读回结果 = 18 次，完成整轮的那次再加 2 次切换；`maxPages` 取上限 35 时是 38 次。改动同步逻辑后用 `test/sync.test.js` 里的查询计数断言核对。
   - **逐页保存与并发保护**：游标随每页落库，某一页失败时之前的页不重抓。加锁是一条带条件的 `UPDATE`（`locked_until <= now`），每页的批次顺带把锁续到 90 秒后，批次结束即释放。游标更新带 `pages_fetched` 比对：锁过期后被别的调用接管的旧调用，在下一页写入时发现比对不上就立即退出，不会把游标写回去，也不能记录失败或发布版本。
   - **失败处理**：`retry_count` 是连续没有存下任何页面的失败次数，没有不可恢复的状态。存下过页面的调用失败只记 `last_error`，下一次触发就重试；一页都没存下的失败把 `status` 记为 `failed`，并用 `locked_until` 让之后的触发等待 2、4、8、最多 16 分钟再试，所以上游故障时半小时窗口内请求 5 次而不是 16 次。存下任意一页就清零，等待结束后的触发会接着跑。
   - 拉取顺序优先小榜单后大榜单：`episodes` (8 页) -> `new-episodes` (1 页) -> `new-podcasts` (2 页) -> `podcasts` (82 页)。
-  - 约 7 次触发（~12 分钟）完成全部 93 页并将该时段 `sync_runs.status` 置为 `completed`。同窗口剩余触发查到已完成后直接返回，外部请求数为 0。
+  - 约 7 次触发（约 12 分钟）完成全部 93 页并将 `sync_runs.status` 置为 `completed`。窗口内剩余的触发查到已完成后直接返回，外部请求数为 0。整个 `08:00` 窗口没跑成时，`10:00` 窗口同样 7 次触发补完。
   - 目前约 9,100 条的规模，每天一轮约消耗 35.8k 行写入。D1 免费写入额度为账户共享的 100k/UTC 日，手动同步和迁移也计入额度。
 
 ### 4.2 原子版本切换（读写隔离）
@@ -209,7 +210,7 @@ xyz-podcast/
 | `GET /api/boards/:board` | 无 | 分页查询榜单；参数 `offset` (0), `limit` (<=100), `q`, `genre`, `sort` (白名单映射 SQL 列), `dir` (`asc`\|`desc`)。`total` 始终为数字：已发布版本的无筛选请求取 `board_meta.total`，带 `q`/`genre` 时执行一次 `COUNT(*)` 并按版本缓存在 isolate 内存；冷启动的未发布版本每次都计数 |
 | `GET /api/xiaoyuzhou/podcast/:pid` | 无 | 实时抓小宇宙播客页并解析返回 `{ podcast, episodes, limited: true, sourceUrl }` |
 | `GET /api/xiaoyuzhou/episode/:eid` | 无 | 实时抓小宇宙单集页并解析返回 `{ episode, comments, limited: true, sourceUrl }` |
-| `POST /api/admin/sync` | `X-Admin-Key` | 手动触发同步（支持 `{ reset?: boolean, batches?: number }`，冷启动/调试用） |
+| `POST /api/admin/sync` | `X-Admin-Key` | 推进当天这一轮同步，请求体 `{ maxPages?: number, force?: boolean, runId?: string }`：`maxPages` 默认 15、最多 35；`force` 另起一轮（编号带 `-m<时间戳>`）。冷启动/调试用 |
 | `GET /api/admin/sync/status` | `X-Admin-Key` | 查看 `sync_runs` 与 `active_sync_version` |
 
 > **安全边界**：
@@ -287,7 +288,7 @@ npm run dev                  # 等价于 npx wrangler dev
 
 # 本地模拟触发 Cron 定时任务（验证分批接力同步）
 npx wrangler dev --test-scheduled
-curl "http://localhost:8787/__scheduled?cron=*/2+0+*+*+*"
+curl "http://localhost:8787/__scheduled?cron=0-30/2+0,2,10+*+*+*"
 
 # 运行单元测试（Parser、工具函数、Sync 状态机、榜单接口、播放器、冒烟）
 npm test                     # node --test；需要 Node >= 22.13（node:sqlite）
@@ -330,6 +331,7 @@ npm run deploy               # npx wrangler deploy
 - **榜单读取额度**：`PERF-05` 去掉已发布版本无筛选请求的 `COUNT(*)`，改读同一请求里已有的 `board_meta.total`；带筛选的计数按版本缓存在 isolate 内存。响应格式不变。本地 workerd 实测热门播客首页 8,277 → 86 行、第 6 页 8,677 → 486 行、热门单集首页 918 → 126 行；非排名列排序仍需全表扫描（热门播客约 16,400 行/次），待后续处理。新增 `test/boards.test.js` 对真实 SQLite 验证 8 项，`npm test` 36/36。
 - **同步查询预算**：`SYNC-01` 同步状态机改为每页一次 `db.batch`（榜单行 + `board_meta` + 游标和锁），加锁与版本切换各合并成一条查询。93 页时每次调用 18 条查询（原 48~49），最后一批为满载时 19~20 条（原 51~54），`maxPages` 上限 35 时 38 条，Free Plan 上限为 50。游标逐页落库，加锁原子化，被接管的旧调用不会再覆盖游标或发布版本。本地 workerd 空库实测 7 次调用同步发布 94 页，线上未验证。
 - **同步失败退避**：`SYNC-02` 失败次数改为连续无进展的计数，存下一页即清零，不再把当天永久标记为失败；无进展的失败按 2/4/8/16 分钟退避。榜单中途空页按失败处理，新一轮条目数不到当前版本一半时拒绝发布。单测覆盖，线上未验证。
+- **同步兜底窗口**：`SYNC-03` 全天的触发共用同一轮（`computeDailyRunKey`），Cron 改为 `0-30/2 0,2,10 * * *`，北京时间 10:00 和 18:00 各再开半小时窗口接着跑，已完成时每次触发 1 次查询。仍用 15 页一批（Free Plan 每次 Cron 触发 10 ms CPU）。抓完但发布失败的尝试也按失败计。单测覆盖，线上未验证。
 - **手动关注播客**：`UI-27` 在「关注播客」Tab 增加手动添加入口，接受 PID 和频道链接，验证后按 PID 去重保存。Chromium、WebKit 验证原生输入框、有效及无效输入、重复添加和刷新恢复，单测 28/28。
 - **小宇宙图片缩略图**：`PERF-04` 在浏览器设置封面、头像及简介插图的 `src` 前转换到 `@small`，覆盖已有本地收藏、历史及队列。真实 CDN 样本及 Chromium、WebKit 请求验证通过，单测 26/26。
 - **单集播放与入队顺序**：`UI-26` 在榜单、频道和单集页立即播放另一集时移到队首，单集入队时插在当前单集之后。Chromium 实测卡片和表格、频道和单集页的操作，以及重复入队、空队列、调序、顺序续播及刷新恢复。单测 25/25。
