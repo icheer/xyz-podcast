@@ -34,7 +34,7 @@
   - `sortablejs@1.15.7/Sortable.min.js` 在打开有条目的播放列表时加载。加载失败时仍可使用上移、下移等调序按钮。
   - `lucide@1.74.0/dist/umd/lucide.min.js` 由 `AppIcon.js` 用于渲染线性图标。
 - **脚本组织**：首屏前就必须执行的小段初始化可放在 `index.html`，例如微信字号锁定。通用浏览器辅助逻辑放在已有的 `utils.js`，独立视图和业务模块按职责组织。
-- **图片加载**：组件通过 `v-cover` 设置图片地址，长简介插图在净化后使用同一个 `smallImageUrl`。小宇宙图片 CDN `image.xyzcdn.net` 和榜单图片域名 `xyzrank.justinbot.com` 统一使用 `@small`；其他域名及本地图片沿用原地址。
+- **图片加载**：组件通过 `v-cover` 设置图片地址，长简介插图在净化后使用同一个 `smallImageUrl`。小宇宙图片 CDN `image.xyzcdn.net` 和榜单图片域名 `xyzrank.justinbot.com` 统一使用单个 `@small`，其他域名及本地图片沿用原地址。榜单代理缩略图加载失败且路径中包含可还原的 HTTPS 原图地址时，`v-cover` 重试一次原图，仍失败则使用占位图。
 - **CSS 设计**：原生 CSS 变量 + 移动优先响应式布局（`< 768px` 手机卡片流，`>= 768px` PC 自适应宽布局/表格）；**浅色高对比播客风**，并通过 CSS 变量预留后续夜间模式扩展能力。
 
 ### 2.3 目标目录结构
@@ -319,6 +319,7 @@ npm run deploy               # npx wrangler deploy
 ## 9. 当前进度与交接快照
 
 - **最后更新**：2026-11-23
+- **榜单封面回退**：`FIX-03` 合并重复的 `@small` 后缀。用户示例的单后缀代理地址返回 404，编码路径中的 HTTPS 原图返回 200。Chromium、WebKit 验证缩略图优先及原图和占位图回退，`npm run check` 通过，单测 53/53。
 - **部署前门禁**：`CI-01` 新增 ESLint 10（`npm run lint`）、模块冒烟测试 `test/smoke.test.js`（逐个模块 `node --check`、按 `import` 语句核对导出、用与页面同版本的 `@vue/compiler-dom` 编译全部模板）、GitHub Actions 工作流，以及 `predeploy` 钩子（`npm run deploy` 前自动执行 `npm run check`，不通过则不发布）。推荐规则报出的 3 处重新抛错已保留 `cause`，兜底流程由 `test/api.test.js` 覆盖。`npm run check` 在 Node 24 与 Node 26 下通过，`npm test` 51/51。资源版本 `app.js?v=43`、`sw.js v17`。
 - **已播完标记**：`FIX-01` 修复连播切集、关闭页面时把刚播完的单集覆盖成未播完的问题（`flushProgressNow` 改为依据 `audio.ended` 保留 `finished`）。`test/player.test.js` 驱动根组件真实方法，Chromium、WebKit 各 12 项真实音频播放检查通过（未修复时失败）。
 - **暂停时移除当前单集**：`FIX-02` 修复移除当前单集后下一集自动开始播放的问题，暂停状态下只加载不播放，播放中则照常接续。同一套浏览器检查在 Chromium、WebKit 各 12 项通过，资源版本 `app.js?v=42`、`sw.js v16`。

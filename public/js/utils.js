@@ -1,9 +1,30 @@
 export function smallImageUrl(src) {
   if (typeof src !== "string") return "";
   return src.trim().replace(
-    /^((?:https?:)?\/\/(?:image\.xyzcdn\.net|xyzrank\.justinbot\.com)\/[^?#]+?)(?:(?:@|%40)(?:thumbnail|small|middle|large))?([?#].*)?$/i,
+    /^((?:https?:)?\/\/(?:image\.xyzcdn\.net|xyzrank\.justinbot\.com)\/[^?#]+?)(?:(?:@|%40)(?:thumbnail|small|middle|large))*([?#].*)?$/i,
     "$1@small$2"
   );
+}
+
+export function originalRankImageUrl(src) {
+  try {
+    const proxy = new URL(src);
+    if (proxy.hostname !== "xyzrank.justinbot.com") return "";
+
+    // Some xyzrank covers encode the source URL in the proxy's image key.
+    const key = /^\/([a-z0-9+/_-]+={0,2})\.[a-z0-9]+@small$/i
+      .exec(decodeURIComponent(proxy.pathname))?.[1];
+    if (!key) return "";
+
+    const decoded = atob(key.replaceAll("-", "+").replaceAll("_", "/"));
+    const bytes = Uint8Array.from(decoded, (char) => char.charCodeAt(0));
+    const original = new URL(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+    if (original.protocol !== "https:" || original.username || original.password ||
+        original.hostname === proxy.hostname) return "";
+    return original.href;
+  } catch {
+    return "";
+  }
 }
 
 export function parsePodcastId(input) {

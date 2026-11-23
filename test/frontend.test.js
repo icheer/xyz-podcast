@@ -10,6 +10,7 @@ import {
   formatProgressBadge,
   injectTimestampButtons,
   inlineConfirmMixin,
+  originalRankImageUrl,
   parsePodcastId,
   parseTextWithTimestamps,
   parseTimestampToSeconds,
@@ -99,6 +100,27 @@ test("smallImageUrl applies one thumbnail suffix only to supported image hosts",
   ];
   for (const src of otherImages) assert.equal(smallImageUrl(src), src);
   assert.equal(smallImageUrl(undefined), "");
+});
+
+const rankCoverUrl = "https://xyzrank.justinbot.com/aHR0cHM6Ly9kM3Qzb3pmdG1kbWgzaS5jbG91ZGZyb250Lm5ldC9zdGFnaW5nL3BvZGNhc3RfdXBsb2FkZWRfbm9sb2dvLzQ0MzUzODQ1LzQ0MzUzODQ1LTE3Njc1NjA1NTgyNTEtMWEzNGZmYjJiZDU2My5qcGc=.jpg@small";
+const rankCoverOriginalUrl =
+  "https://d3t3ozftmdmh3i.cloudfront.net/staging/podcast_uploaded_nologo/44353845/44353845-1767560558251-1a34ffb2bd563.jpg";
+
+test("smallImageUrl preserves the reported rank cover and collapses duplicate suffixes", () => {
+  assert.equal(smallImageUrl(rankCoverUrl), rankCoverUrl);
+  assert.equal(smallImageUrl(rankCoverUrl + "@small"), rankCoverUrl);
+  assert.equal(smallImageUrl(rankCoverUrl + "%40small?x=1#cover"), rankCoverUrl + "?x=1#cover");
+});
+
+test("originalRankImageUrl recovers the HTTPS cover encoded by the rank image proxy", () => {
+  assert.equal(originalRankImageUrl(rankCoverUrl), rankCoverOriginalUrl);
+  assert.equal(originalRankImageUrl(rankCoverUrl.replace("=", "%3D") + "?x=1"), rankCoverOriginalUrl);
+  assert.equal(originalRankImageUrl("https://xyzrank.justinbot.com/FhuQBR26B-8jsdfuZumu54mCylqG.png@small"), "");
+  assert.equal(originalRankImageUrl(rankCoverUrl.replace("xyzrank.justinbot.com", "example.org")), "");
+  for (const source of ["http://example.org/cover.jpg", "https://xyzrank.justinbot.com/cover.jpg"]) {
+    const key = Buffer.from(source).toString("base64url");
+    assert.equal(originalRankImageUrl(`https://xyzrank.justinbot.com/${key}.jpg@small`), "");
+  }
 });
 
 test("utils formatting helpers produce expected strings", () => {

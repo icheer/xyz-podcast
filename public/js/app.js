@@ -17,7 +17,7 @@ import {
   saveQueue,
   toggleFavoritePodcast,
 } from "./storage.js";
-import { formatDurationSeconds, shouldIgnoreGlobalHotkey, smallImageUrl } from "./utils.js";
+import { formatDurationSeconds, originalRankImageUrl, shouldIgnoreGlobalHotkey, smallImageUrl } from "./utils.js";
 import AppIcon from "./components/AppIcon.js";
 import AboutDialog from "./components/AboutDialog.js";
 import EpisodeView from "./components/EpisodeView.js";
@@ -1297,7 +1297,13 @@ function setCoverSource(el, value) {
 app.directive("cover", {
   beforeMount(el, { value }) {
     el._coverError = () => {
-      if (el.getAttribute("src") !== COVER_PLACEHOLDER) setCoverSource(el, "");
+      if (el.getAttribute("src") === COVER_PLACEHOLDER) return;
+      const original = originalRankImageUrl(el.src);
+      if (original) {
+        el.src = original;
+      } else {
+        setCoverSource(el, "");
+      }
     };
     el.addEventListener("error", el._coverError);
     setCoverSource(el, value);
