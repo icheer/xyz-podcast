@@ -90,7 +90,7 @@ export default {
         this.playerActions.showToast("该单集暂无可直接播放的音频地址");
         return;
       }
-      this.playerActions.playTrack(this.buildTrack(ep));
+      this.playerActions.playTrack(this.buildTrack(ep), { moveToFront: true });
     },
     enqueueEpisode(ep) {
       if (!ep.enclosureUrl) {

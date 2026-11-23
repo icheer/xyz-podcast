@@ -45,6 +45,11 @@ export default {
     isInQueue() {
       return this.player.queue.some((t) => t.eid === this.eid);
     },
+    canMoveToNext() {
+      if (!this.isInQueue || this.isCurrent || !this.player.currentEid) return false;
+      const currentIndex = this.player.queue.findIndex((t) => t.eid === this.player.currentEid);
+      return currentIndex >= 0 && this.player.queue[currentIndex + 1]?.eid !== this.eid;
+    },
     resumeSeconds() {
       if (!this.episode) return 0;
       const entry = this.player.progressMap[this.eid];
@@ -164,7 +169,7 @@ export default {
         this.playerActions.togglePlay();
         return;
       }
-      this.playerActions.playTrack(this.buildTrack());
+      this.playerActions.playTrack(this.buildTrack(), { moveToFront: true });
     },
     handleEnqueue() {
       if (!this.episode?.enclosureUrl) {
@@ -304,7 +309,7 @@ export default {
             </button>
 
             <button
-              v-if="player.currentEid && !isCurrent"
+              v-if="canMoveToNext"
               type="button"
               class="btn"
               @click="handlePlayNext"

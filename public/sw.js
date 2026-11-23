@@ -1,4 +1,4 @@
-const CACHE_NAME = "xyz-podcast-shell-v11";
+const CACHE_NAME = "xyz-podcast-shell-v12";
 const SHELL_ASSETS = [
   "/",
   "/css/app.css",

@@ -161,7 +161,7 @@ const AppRoot = {
         getCurrentTrack: this.getCurrentTrack,
         playTrack: this.playTrack,
         enqueueTrack: this.enqueueTrack,
-        enqueueNext: this.enqueueNext,
+        enqueueNext: (track) => this.enqueueTrack(track, { moveExisting: true }),
         enqueueMany: this.enqueueMany,
         removeFromQueue: this.removeFromQueue,
         clearFinishedFromQueue: this.clearFinishedFromQueue,
@@ -563,18 +563,19 @@ const AppRoot = {
       this.flushProgressNow();
       this.lastProgressSaveMs = 0;
 
-      const existsIdx = this.player.queue.findIndex((t) => t.eid === track.eid);
-      if (existsIdx === -1) {
-        const curIdx = this.player.queue.findIndex((t) => t.eid === this.player.currentEid);
-        const insertAt = curIdx >= 0 ? curIdx + 1 : 0;
-        const nextQueue = [...this.player.queue];
-        nextQueue.splice(insertAt, 0, track);
-        this.player.queue = nextQueue;
-      } else {
-        const nextQueue = [...this.player.queue];
-        nextQueue[existsIdx] = { ...nextQueue[existsIdx], ...track };
-        this.player.queue = nextQueue;
+      const nextQueue = [...this.player.queue];
+      const existingIndex = nextQueue.findIndex((t) => t.eid === track.eid);
+      const queuedTrack = existingIndex >= 0 ? { ...nextQueue[existingIndex], ...track } : track;
+      if (existingIndex >= 0) nextQueue.splice(existingIndex, 1);
+
+      let insertAt = 0;
+      if (!options.moveToFront) {
+        insertAt = existingIndex >= 0
+          ? existingIndex
+          : nextQueue.findIndex((t) => t.eid === this.player.currentEid) + 1;
       }
+      nextQueue.splice(insertAt, 0, queuedTrack);
+      this.player.queue = nextQueue;
 
       const isSameSrc = this.player.currentEid === track.eid && audio.src === track.enclosureUrl;
       this.player.currentEid = track.eid;
@@ -620,38 +621,30 @@ const AppRoot = {
         this.player.isBuffering = false;
       }
     },
-    enqueueTrack(track) {
+    enqueueTrack(track, { moveExisting = false } = {}) {
       if (!track?.eid) return;
-      if (this.player.queue.some((t) => t.eid === track.eid)) {
+      const nextQueue = [...this.player.queue];
+      const existingIndex = nextQueue.findIndex((t) => t.eid === track.eid);
+      if (existingIndex >= 0 && !moveExisting) {
         this.showToast("已在播放列表中");
         return;
       }
-      this.player.queue = [...this.player.queue, track];
-      if (!this.player.currentEid) {
-        this.player.currentEid = track.eid;
-        this.restoreCurrentTrackOnBoot();
-      }
-      saveQueue(this.player.queue, this.player.currentEid);
-      this.showToast("已加入播放列表");
-    },
-    enqueueNext(track) {
-      if (!track?.eid) return;
       if (this.player.currentEid === track.eid) {
         this.showToast("正在播放该单集");
         return;
       }
-      const filtered = this.player.queue.filter((t) => t.eid !== track.eid);
-      const curIdx = filtered.findIndex((t) => t.eid === this.player.currentEid);
-      const insertAt = curIdx >= 0 ? curIdx + 1 : 0;
-      const nextQueue = [...filtered];
-      nextQueue.splice(insertAt, 0, track);
+
+      const queuedTrack = existingIndex >= 0 ? { ...nextQueue[existingIndex], ...track } : track;
+      if (existingIndex >= 0) nextQueue.splice(existingIndex, 1);
+      const currentIndex = nextQueue.findIndex((t) => t.eid === this.player.currentEid);
+      nextQueue.splice(currentIndex + 1, 0, queuedTrack);
       this.player.queue = nextQueue;
-      if (!this.player.currentEid) {
+      if (currentIndex === -1) {
         this.player.currentEid = track.eid;
         this.restoreCurrentTrackOnBoot();
       }
       saveQueue(this.player.queue, this.player.currentEid);
-      this.showToast("已设为下一首播放");
+      this.showToast(moveExisting ? "已设为下一首播放" : "已加入播放列表");
     },
     enqueueMany(tracks) {
       const existing = new Set(this.player.queue.map((t) => t.eid));

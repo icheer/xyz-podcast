@@ -175,6 +175,10 @@ export default {
     isCurrentPlaying(eid) {
       return Boolean(eid && this.player.currentEid === eid && this.player.isPlaying);
     },
+    quickPlayTitle(eid) {
+      if (!eid || this.player.currentEid !== eid) return "立即播放";
+      return this.player.isPlaying ? "暂停" : "继续播放";
+    },
     isInQueue(eid) {
       return Boolean(eid && this.player.queue.some((t) => t.eid === eid));
     },
@@ -469,7 +473,7 @@ export default {
           link: item.link || detail.sourceUrl,
         };
         if (mode === "play") {
-          await this.playerActions.playTrack(track);
+          await this.playerActions.playTrack(track, { moveToFront: true });
         } else {
           this.playerActions.enqueueTrack(track);
         }
@@ -595,7 +599,7 @@ export default {
                 :class="{ active: isCurrentPlaying(entry.item.eid) }"
                 :disabled="busyMap[entry.item.eid]"
                 @click="handleQuickEpisodeAction(entry.item, 'play')"
-                :title="isCurrentPlaying(entry.item.eid) ? '暂停' : '立即播放'"
+                :title="quickPlayTitle(entry.item.eid)"
               >
                 <app-icon v-if="busyMap[entry.item.eid]" name="loader-circle" :size="13" />
                 <app-icon v-else-if="isCurrentPlaying(entry.item.eid)" name="pause" :size="13" />
@@ -726,7 +730,7 @@ export default {
                     :class="{ queued: isCurrentPlaying(entry.item.eid) }"
                     :disabled="busyMap[entry.item.eid]"
                     @click="handleQuickEpisodeAction(entry.item, 'play')"
-                    :title="isCurrentPlaying(entry.item.eid) ? '暂停' : '立即播放'"
+                    :title="quickPlayTitle(entry.item.eid)"
                   >
                     <app-icon v-if="busyMap[entry.item.eid]" name="loader-circle" :size="14" />
                     <app-icon v-else-if="isCurrentPlaying(entry.item.eid)" name="pause" :size="14" />
