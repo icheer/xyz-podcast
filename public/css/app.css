@@ -345,6 +345,10 @@ img {
   text-overflow: ellipsis;
 }
 
+.brand-sub.is-stale {
+  color: var(--warning);
+}
+
 .header-actions {
   display: flex;
   align-items: center;
@@ -656,6 +660,19 @@ img {
 .board-summary {
   font-size: 11px;
   color: var(--text-muted);
+}
+
+/* Shown when the daily sync has not come through. The text keeps the neutral
+   colour: the warning colour on its own tint is too faint to read (4.0:1). */
+.sync-stale-note {
+  margin-bottom: 10px;
+  padding: 8px 12px;
+  border-left: 3px solid var(--warning);
+  border-radius: var(--radius-sm);
+  background: var(--warning-soft);
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
 }
 
 .state-box {

@@ -18,6 +18,7 @@ import {
   toggleFavoritePodcast,
 } from "./storage.js";
 import { formatDurationSeconds, originalRankImageUrl, shouldIgnoreGlobalHotkey, smallImageUrl } from "./utils.js";
+import { isBoardDataStale } from "./freshness.js";
 import AppIcon from "./components/AppIcon.js";
 import AboutDialog from "./components/AboutDialog.js";
 import EpisodeView from "./components/EpisodeView.js";
@@ -129,6 +130,7 @@ const AppRoot = {
       aboutOpen: false,
       libraryOpen: false,
       boardMeta: {},
+      clockMs: Date.now(),
       theme: prefs.theme,
       deferredInstallPrompt: null,
       toastMessage: "",
@@ -214,6 +216,10 @@ const AppRoot = {
       const mm = String(d.getMinutes()).padStart(2, "0");
       return `更新于 ${d.getMonth() + 1}/${d.getDate()} ${hh}:${mm}`;
     },
+    boardDataStale() {
+      // Read the clock too, so a page left open past the next daily sync notices.
+      return isBoardDataStale(this.boardMeta?.updatedAt, this.clockMs);
+    },
     hasCurrentTrack() {
       return Boolean(this.getCurrentTrack());
     },
@@ -239,6 +245,9 @@ const AppRoot = {
     this._overlayHistory.sync();
     this.applyTheme();
     this.loadMeta();
+    this._clockTimer = setInterval(() => {
+      this.clockMs = Date.now();
+    }, 5 * 60_000);
     this.restoreCurrentTrackOnBoot();
     this.setupMediaSessionHandlers();
     this.registerPwa();
@@ -248,6 +257,7 @@ const AppRoot = {
     window.addEventListener("beforeunload", this.flushProgressNow);
   },
   beforeUnmount() {
+    clearInterval(this._clockTimer);
     this.clearSleepTimerSilent();
     this._overlayHistory?.destroy();
     this.flushProgressNow();
@@ -1117,7 +1127,12 @@ const AppRoot = {
               </div>
               <div style="min-width:0;">
                 <div class="brand-title">小宇宙播客热榜</div>
-                <div class="brand-sub" v-if="syncBadgeText" :title="syncBadgeText">{{ syncBadgeText }}</div>
+                <div
+                  class="brand-sub"
+                  v-if="syncBadgeText"
+                  :class="{ 'is-stale': boardDataStale }"
+                  :title="boardDataStale ? '今天的同步还没有完成，显示的是上一次完整同步的数据' : syncBadgeText"
+                >{{ syncBadgeText }}</div>
               </div>
             </button>
 
@@ -1222,6 +1237,7 @@ const AppRoot = {
                 :key="route.meta && route.meta.board ? 'board-' + route.meta.board : (route.name === 'PodcastView' ? 'podcast-' + route.params.pid : route.fullPath)"
                 :search-query="searchQuery"
                 :board-meta="boardMeta"
+                :data-stale="boardDataStale"
               />
             </keep-alive></transition>
           </router-view>

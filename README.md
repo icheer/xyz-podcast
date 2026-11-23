@@ -121,6 +121,23 @@ Cron 已写在 `wrangler.toml` 中，部署时一并配置，无需自己每天�
 
 每次定时触发的结果和失败原因也会写进 **Workers Logs**（Worker 页面 → **Observability** → **Logs**；`wrangler.toml` 已开启，Free 计划保留 3 天），可按 `Scheduled sync` 检索。
 
+### 数据没有更新时
+
+当前榜单的最后更新时间超过 25 小时（当天 `08:00` 的同步到次日 `09:00` 仍未完成）时，四个榜单顶部会显示「榜单数据还停留在 M 月 D 日 HH:mm，今天的同步还没有完成，系统会自动重试。」，电脑端顶栏的更新时间变为警示色。数据正常时页面没有额外提示；页面一直开着时每 5 分钟核对一次。
+
+`/api/health` 的 `sync` 字段可用于外部监控（UptimeRobot、Better Stack 等），在 `stale` 为 `true` 时告警：
+
+```json
+{
+  "ok": true,
+  "db": "ok",
+  "timestamp": "2026-11-23T10:00:00.000Z",
+  "sync": { "version": "20261123T00", "updatedAt": "2026-11-23T00:12:40.000Z", "ageHours": 9.8, "stale": false }
+}
+```
+
+首次同步开始超过 25 小时仍未发布任何版本时，`stale` 同样为 `true`。
+
 ### 确认定时同步是否完成
 
 在浏览器打开 `/api/boards/meta`。每天北京时间 `08:00` 启动的同步对应当天 `YYYYMMDDT00`。当 `syncVersion` 为目标版本、`isComplete: true`，且四榜 `syncedCount` 都等于 `total`，即表示完整发布成功。同步期间有完整旧版本时，这里继续展示旧版。
@@ -287,7 +304,7 @@ npm run check               # 等于上面两条；npm run deploy 前会自动�
 
 | 方法与路径 | 鉴权 | 说明 |
 |---|---|---|
-| `GET /api/health` | 无 | Worker 与 D1 连通性健康检查 |
+| `GET /api/health` | 无 | Worker 与 D1 连通性健康检查；`sync` 带已发布版本、最后更新时间和 `stale` |
 | `GET /api/boards/meta` | 无 | 返回当前同步版本、更新时间及 4 榜单分类列表 |
 | `GET /api/boards/:board` | 无 | 查询榜单（支持 `offset`、`limit`、`q`、`genre`、`sort`、`dir`） |
 | `GET /api/xiaoyuzhou/podcast/:pid` | 无 | 播客频道页解析兜底接口 |

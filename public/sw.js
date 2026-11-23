@@ -1,4 +1,4 @@
-const CACHE_NAME = "xyz-podcast-shell-v18";
+const CACHE_NAME = "xyz-podcast-shell-v19";
 const SHELL_ASSETS = [
   "/",
   "/css/app.css",
@@ -7,6 +7,7 @@ const SHELL_ASSETS = [
   "/js/storage.js",
   "/js/utils.js",
   "/js/xyzParser.js",
+  "/js/freshness.js",
   "/js/overlayHistory.js",
   "/js/components/AppIcon.js",
   "/js/components/AboutDialog.js",

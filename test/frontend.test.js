@@ -17,6 +17,7 @@ import {
   shouldIgnoreGlobalHotkey,
   smallImageUrl,
 } from "../public/js/utils.js";
+import RankBoard from "../public/js/components/RankBoard.js";
 import {
   MAX_PROGRESS_ENTRIES,
   addFavoritePodcast,
@@ -462,4 +463,22 @@ test("inlineConfirmMixin arms on first click, executes on second click, and disa
   await new Promise((r) => setTimeout(r, 40));
   assert.equal(ctx.confirmingClear, false);
   assert.equal(executed, 1);
+});
+
+test("a board says its data is stale only when it is", () => {
+  const text = (dataStale, updatedAt) =>
+    RankBoard.computed.staleDataText.call({ dataStale, boardMeta: { updatedAt } });
+  const updated = "2026-11-22T05:14:00.000Z";
+  const d = new Date(updated);
+  const pad = (n) => String(n).padStart(2, "0");
+
+  // new Date(null) is 1 January 1970 rather than "no date", so a board whose
+  // data is fine must not get as far as formatting a date.
+  assert.equal(text(false, undefined), "");
+  assert.equal(text(false, updated), "");
+  assert.equal(text(true, "not a date"), "");
+  assert.equal(
+    text(true, updated),
+    `榜单数据还停留在 ${d.getMonth() + 1} 月 ${d.getDate()} 日 ${pad(d.getHours())}:${pad(d.getMinutes())}，今天的同步还没有完成，系统会自动重试。`
+  );
 });

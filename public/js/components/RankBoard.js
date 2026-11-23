@@ -44,6 +44,8 @@ export default {
   props: {
     searchQuery: { type: String, default: "" },
     boardMeta: { type: Object, default: () => ({}) },
+    // The published list is older than the daily sync that should have replaced it.
+    dataStale: { type: Boolean, default: false },
   },
   created() {
     this._mobileHeights = Object.create(null);
@@ -93,6 +95,14 @@ export default {
     genreOptions() {
       const info = this.boardMeta?.boards?.[this.boardKey];
       return Array.isArray(info?.genres) ? info.genres : [];
+    },
+    staleDataText() {
+      // Only for data that is stale: new Date(null) is 1970, not "no date".
+      if (!this.dataStale) return "";
+      const d = new Date(this.boardMeta?.updatedAt);
+      if (Number.isNaN(d.getTime())) return "";
+      const pad = (n) => String(n).padStart(2, "0");
+      return `榜单数据还停留在 ${d.getMonth() + 1} 月 ${d.getDate()} 日 ${pad(d.getHours())}:${pad(d.getMinutes())}，今天的同步还没有完成，系统会自动重试。`;
     },
     visibleEntries() {
       const len = this.items.length;
@@ -492,6 +502,7 @@ export default {
   },
   template: `
     <section class="rank-board">
+      <div v-if="staleDataText" class="sync-stale-note" role="status">{{ staleDataText }}</div>
       <div class="board-toolbar">
         <div class="toolbar-filters">
           <select class="select-ctrl" v-model="selectedGenre" @change="onGenreChange" aria-label="按分类筛选">

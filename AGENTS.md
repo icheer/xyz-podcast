@@ -65,9 +65,11 @@ xyz-podcast/
 │   ├── handlers/
 │   │   ├── boards.js         # /api/boards/* 榜单查询、搜索、排序、分页、元信息
 │   │   ├── xiaoyuzhou.js     # /api/xiaoyuzhou/podcast/:pid 与 /episode/:eid 实时抓取解析
+│   │   ├── health.js        # /api/health：D1 连通性与榜单数据年龄（sync.stale）
 │   │   └── admin.js          # /api/admin/sync 手动同步与状态查询（ADMIN_KEY 鉴权）
 │   └── utils/
 │       ├── alert.js          # 可选的同步告警：向 ALERT_WEBHOOK_URL 发送通知
+│       ├── freshness.js      # 转发导出 public/js/freshness.js（前后端共享的榜单过期判断）
 │       ├── http.js           # JSON 响应、CORS/缓存头、参数与 ID 白名单校验
 │       └── parser.js         # 转发导出 public/js/xyzParser.js（前后端共享单一解析器）
 ├── public/
@@ -86,6 +88,7 @@ xyz-podcast/
 │       ├── overlayHistory.js # 播放器/队列同URL历史状态，返回优先关闭弹层
 │       ├── storage.js        # localStorage 管理：播放列表队列、断点续播进度、倍速/循环设置
 │       ├── utils.js          # 时长格式化、时间戳、按需加载 DOMPurify 和 SortableJS
+│       ├── freshness.js      # 榜单数据是否已过期（25 小时），页面提示与 /api/health 共用
 │       ├── components/
 │       │   ├── AboutDialog.js    # 项目介绍模态框、桌面端快捷键说明与 GitHub 入口
 │       │   ├── AppIcon.js        # Lucide UMD SVG 安全包装组件（避免 Vue VDOM 冲突）
@@ -103,7 +106,8 @@ xyz-podcast/
     ├── api.test.js            # 小宇宙详情的浏览器直连与 Worker 兜底流程（替换全局 fetch）
     ├── boards.test.js         # 榜单接口：排序、搜索、分页、趋势及每次请求的 COUNT(*) 次数
     ├── player.test.js         # 根组件真实 methods + 假 <audio>：已播完标记、移除当前单集后的播放状态
-    ├── frontend.test.js
+    ├── frontend.test.js     # 工具函数、本地存储、收听进度与「数据未更新」提示文案
+    ├── health.test.js        # /api/health 的数据年龄与过期判断
     ├── parser.test.js
     ├── schema.test.js
     ├── smoke.test.js          # 冒烟：每个模块可解析、导入的导出存在、组件模板可被 Vue 编译器编译
@@ -208,7 +212,7 @@ xyz-podcast/
 
 | 方法与路径 | 鉴权 | 说明 |
 |---|---|---|
-| `GET /api/health` | 无 | 健康检查与 D1 连通性检测 |
+| `GET /api/health` | 无 | 健康检查与 D1 连通性检测；`sync` 返回已发布版本、最后更新时间、数据年龄 `ageHours` 和 `stale`（超过 25 小时，或首次同步开始超过 25 小时仍未发布），供外部监控告警 |
 | `GET /api/boards/meta` | 无 | 返回当前 `active_sync_version` 及 4 榜单总数、更新时间、分类列表 |
 | `GET /api/boards/:board` | 无 | 分页查询榜单；参数 `offset` (0), `limit` (<=100), `q`, `genre`, `sort` (白名单映射 SQL 列), `dir` (`asc`\|`desc`)。`total` 始终为数字：已发布版本的无筛选请求取 `board_meta.total`，带 `q`/`genre` 时执行一次 `COUNT(*)` 并按版本缓存在 isolate 内存；冷启动的未发布版本每次都计数 |
 | `GET /api/xiaoyuzhou/podcast/:pid` | 无 | 实时抓小宇宙播客页并解析返回 `{ podcast, episodes, limited: true, sourceUrl }` |
@@ -233,6 +237,7 @@ xyz-podcast/
    - **PC 端 (`>= 768px`)**：自适应高信息密度表格（支持列头排序、中位数提示、排名趋势、单集直跳频道与已听进度），保留快捷播放/入队与进内页交互。
    - 四榜Tab点击及横滑均使用router.replace，共用当前历史位置，不累积后退步骤；进入详情使用push，返回恢复最后榜单及其滚动位置（外链冷启动直达内页时返回自动回退至 `/` 热榜首页，且详情页顶栏常驻「热榜」入口，未匹配路径走 404 兜底页）。手机列表支持左右滑动切换相邻榜单Tab（左滑下一个，右滑上一个，首尾不循环）；仅<768px启用，排除控件、屏幕24px边缘、弹层、多指及取消手势，纵向起手不切换；方向锁12px、横移64px且大于纵移1.5倍、700ms内完成，横滑后抑制误点击。
    - 触底 `IntersectionObserver` 自动加载下一页（或手动"加载更多"兜底）。
+   - **数据未更新提示**：当前版本的最后更新时间超过 25 小时（`public/js/freshness.js` 的 `isBoardDataStale`，与 `/api/health` 共用）时，四个榜单顶部显示「榜单数据还停留在 M 月 D 日 HH:mm，今天的同步还没有完成，系统会自动重试。」，桌面端顶栏的更新时间变为警示色。根组件每 5 分钟核对一次，页面一直开着也会出现；数据正常时不显示任何内容。
 2. **播客频道页 (`/podcast/:pid`)**
    - 展示频道封面、标题、主播、简介（可展开）、订阅/总集数、"去小宇宙官网"外链。
    - 最新 15 集列表：整卡点击或键盘 Enter/空格进入详情，独立提供「▶ 播放」「+ 加入播放列表」按钮；手机日期/时长/播放/评论独占一行，操作另行排列，以及「将本页 15 集全部加入播放列表」快捷操作；显示网页端 15 集限制提示。
@@ -335,6 +340,7 @@ npm run deploy               # npx wrangler deploy
 - **同步查询预算**：`SYNC-01` 同步状态机改为每页一次 `db.batch`（榜单行 + `board_meta` + 游标和锁），加锁与版本切换各合并成一条查询。93 页时每次调用 18 条查询（原 48~49），最后一批为满载时 19~20 条（原 51~54），`maxPages` 上限 35 时 38 条，Free Plan 上限为 50。游标逐页落库，加锁原子化，被接管的旧调用不会再覆盖游标或发布版本。本地 workerd 空库实测 7 次调用同步发布 94 页，线上未验证。
 - **同步失败退避**：`SYNC-02` 失败次数改为连续无进展的计数，存下一页即清零，不再把当天永久标记为失败；无进展的失败按 2/4/8/16 分钟退避。榜单中途空页按失败处理，新一轮条目数不到当前版本一半时拒绝发布。单测覆盖，线上未验证。
 - **同步兜底窗口**：`SYNC-03` 全天的触发共用同一轮（`computeDailyRunKey`），Cron 改为 `0-30/2 0,2,10 * * *`，北京时间 10:00 和 18:00 各再开半小时窗口接着跑，已完成时每次触发 1 次查询。仍用 15 页一批（Free Plan 每次 Cron 触发 10 ms CPU）。抓完但发布失败的尝试也按失败计。单测覆盖，线上未验证。
+- **数据未更新提示**：`SYNC-05` 当前版本的最后更新时间超过 25 小时时，四个榜单顶部显示提示，桌面端顶栏的更新时间变为警示色，页面每 5 分钟核对一次。`/api/health` 的 `sync` 增加 `version`、`updatedAt`、`ageHours`、`stale`，首次同步开始超过 25 小时仍未发布也算过期。浏览器检查发现并修复了数据正常时也显示提示的问题（`new Date(null)` 是 1970 年）并补了单测。Chromium、WebKit 在 390px、1280px 浅深色共 48 项通过，单测 81/81；资源版本 `app.js?v=45`、`app.css?v=36`、`sw.js v19`。
 - **同步告警**：`SYNC-04` 兜底窗口里的尝试失败时向可选的 `ALERT_WEBHOOK_URL` 发通知（普通地址 POST JSON `{ text }`，含 `{text}` 的地址替换后 GET），上午窗口不发，同一轮 4 小时内最多一条，投递失败不算已发。`wrangler.toml` 开启 Workers Logs，每次定时触发记录一行结果。
 - **手动关注播客**：`UI-27` 在「关注播客」Tab 增加手动添加入口，接受 PID 和频道链接，验证后按 PID 去重保存。Chromium、WebKit 验证原生输入框、有效及无效输入、重复添加和刷新恢复，单测 28/28。
 - **小宇宙图片缩略图**：`PERF-04` 在浏览器设置封面、头像及简介插图的 `src` 前转换到 `@small`，覆盖已有本地收藏、历史及队列。真实 CDN 样本及 Chromium、WebKit 请求验证通过，单测 26/26。
@@ -381,4 +387,4 @@ npm run deploy               # npx wrangler deploy
 - **最新 P3 样式与代码架构整理（2026-11-18）**：`REFACTOR-P3` 已完成落盘：
   - **`public/css/app.css` 单源化级联重构**：彻底消除多轮迭代追加在尾部的 ~80 处重复选择器覆盖与 5 处分散 `@media (min-width: 768px)`，按职责重组为 11 个单源章节（Design Tokens、Reset & Primitives、Header、About Dialog、Board Toolbar & Skeletons、Mobile Rank Cards、Desktop Rank Table、Detail Pages/Shownotes/Comments、Mini & Full Player、Drawers/Toast/Transitions、Consolidated Breakpoints），100% 保持已验收的视觉表现与优先级。
   - **跨组件去重、队列背景进度条、原地二次确认与 Android PWA 导航栏修复**：`PlaylistDrawer` 移除易被长播客名截断的行内橙色 `已听 n%` 文本，改用基于 `--listen-pct` 的条目左→右柔和背景色填充；`utils.js` 新增 `inlineConfirmMixin` 为播放列表「清空」与收听历史「清空历史」提供无弹窗的**红色原地二次确认**（首次点击变红为「确认清空」并保持 3.5 秒，再次点击执行且仍保留底部 5 秒撤销，点击面板其余位置/切 Tab/按 Esc 自动解除），抽离 `computeProgressPercent` 与 `formatProgressBadge` 统一四处收听进度逻辑；`api.js` 为前端内存详情缓存增加 `MAX_DETAIL_CACHE = 60` FIFO 淘汰上限；`site.webmanifest` 移除写死的品牌橙 `"theme_color": "#e04f26"`（并将 `background_color` 对齐 `#f7f4ec`），交由 `index.html` 的浅/深双 `prefers-color-scheme` `<meta name="theme-color">` 与运行时脚本控制状态栏，避免 Android Chrome WebAPK（如 Pixel 4 XL 三键导航栏）将底部虚拟导航栏静态染成刺眼橙色。资源版本升至 `app.css?v=33`、`app.js?v=35`，`sw.js` 升至 `v8`。
-- **当前仓库状态**：`npm test` **51/51** 全部通过；仓库已关联 Cloudflare Workers Builds，推送到 `origin/main` 后自动构建部署上线（`https://xyz.keyi.ma`）。
+- **当前仓库状态**：`npm test` **81/81** 全部通过；仓库已关联 Cloudflare Workers Builds，推送到 `origin/main` 后自动构建部署上线（`https://xyz.keyi.ma`）。
