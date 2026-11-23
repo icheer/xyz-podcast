@@ -256,6 +256,7 @@ xyz-podcast/
     - `xyzp_v1_favorites`：本地关注的播客列表 `[{ pid, title, author, image, rssUrl, xyzUrl, addedAt }]`
   - 每播放 3~5 秒、暂停、`seeked`、切集、`pagehide`/`beforeunload` 时持久化；下次加载同一 `eid` 时若 `currentTime > 5` 且未 `finished`（剩余 > 5s）自动定位续播，并给予轻提示（如"已恢复至 12:34"）。
   - **已播完标记不得被覆盖**：`onAudioEnded` 存入 `finished: true` 后，连播切到下一集、移除当前单集以及 `pagehide`/`beforeunload` 都会再次调用 `flushProgressNow()`；它依据 `audio.ended` 决定 `finished`，已播到结尾时保持 `true`。回归测试见 `test/player.test.js`。
+  - **移除当前单集**：切到下一集并保持原有播放状态。播放器处于暂停时只加载下一集（`playTrack(track, { autoplay: false })`），不自动开始播放，迷你栏显示播放按钮而不是加载动画。
 
 ---
 
@@ -307,7 +308,8 @@ npm run deploy               # npx wrangler deploy
 ## 9. 当前进度与交接快照
 
 - **最后更新**：2026-11-23
-- **已播完标记**：`FIX-01` 修复连播切集、关闭页面时把刚播完的单集覆盖成未播完的问题（`flushProgressNow` 改为依据 `audio.ended` 保留 `finished`）。`test/player.test.js` 驱动根组件真实方法，Chromium、WebKit 各 12 项真实音频播放检查通过（未修复时 3 项失败），资源版本 `app.js?v=41`、`sw.js v15`。
+- **已播完标记**：`FIX-01` 修复连播切集、关闭页面时把刚播完的单集覆盖成未播完的问题（`flushProgressNow` 改为依据 `audio.ended` 保留 `finished`）。`test/player.test.js` 驱动根组件真实方法，Chromium、WebKit 各 12 项真实音频播放检查通过（未修复时失败）。
+- **暂停时移除当前单集**：`FIX-02` 修复移除当前单集后下一集自动开始播放的问题，暂停状态下只加载不播放，播放中则照常接续。同一套浏览器检查在 Chromium、WebKit 各 12 项通过，资源版本 `app.js?v=42`、`sw.js v16`。
 - **榜单读取额度**：`PERF-05` 去掉已发布版本无筛选请求的 `COUNT(*)`，改读同一请求里已有的 `board_meta.total`；带筛选的计数按版本缓存在 isolate 内存。响应格式不变。本地 workerd 实测热门播客首页 8,277 → 86 行、第 6 页 8,677 → 486 行、热门单集首页 918 → 126 行；非排名列排序仍需全表扫描（热门播客约 16,400 行/次），待后续处理。新增 `test/boards.test.js` 对真实 SQLite 验证 8 项，`npm test` 36/36。
 - **手动关注播客**：`UI-27` 在「关注播客」Tab 增加手动添加入口，接受 PID 和频道链接，验证后按 PID 去重保存。Chromium、WebKit 验证原生输入框、有效及无效输入、重复添加和刷新恢复，单测 28/28。
 - **小宇宙图片缩略图**：`PERF-04` 在浏览器设置封面、头像及简介插图的 `src` 前转换到 `@small`，覆盖已有本地收藏、历史及队列。真实 CDN 样本及 Chromium、WebKit 请求验证通过，单测 26/26。
@@ -354,4 +356,4 @@ npm run deploy               # npx wrangler deploy
 - **最新 P3 样式与代码架构整理（2026-11-18）**：`REFACTOR-P3` 已完成落盘：
   - **`public/css/app.css` 单源化级联重构**：彻底消除多轮迭代追加在尾部的 ~80 处重复选择器覆盖与 5 处分散 `@media (min-width: 768px)`，按职责重组为 11 个单源章节（Design Tokens、Reset & Primitives、Header、About Dialog、Board Toolbar & Skeletons、Mobile Rank Cards、Desktop Rank Table、Detail Pages/Shownotes/Comments、Mini & Full Player、Drawers/Toast/Transitions、Consolidated Breakpoints），100% 保持已验收的视觉表现与优先级。
   - **跨组件去重、队列背景进度条、原地二次确认与 Android PWA 导航栏修复**：`PlaylistDrawer` 移除易被长播客名截断的行内橙色 `已听 n%` 文本，改用基于 `--listen-pct` 的条目左→右柔和背景色填充；`utils.js` 新增 `inlineConfirmMixin` 为播放列表「清空」与收听历史「清空历史」提供无弹窗的**红色原地二次确认**（首次点击变红为「确认清空」并保持 3.5 秒，再次点击执行且仍保留底部 5 秒撤销，点击面板其余位置/切 Tab/按 Esc 自动解除），抽离 `computeProgressPercent` 与 `formatProgressBadge` 统一四处收听进度逻辑；`api.js` 为前端内存详情缓存增加 `MAX_DETAIL_CACHE = 60` FIFO 淘汰上限；`site.webmanifest` 移除写死的品牌橙 `"theme_color": "#e04f26"`（并将 `background_color` 对齐 `#f7f4ec`），交由 `index.html` 的浅/深双 `prefers-color-scheme` `<meta name="theme-color">` 与运行时脚本控制状态栏，避免 Android Chrome WebAPK（如 Pixel 4 XL 三键导航栏）将底部虚拟导航栏静态染成刺眼橙色。资源版本升至 `app.css?v=33`、`app.js?v=35`，`sw.js` 升至 `v8`。
-- **当前仓库状态**：`npm test` **38/38** 全部通过；仓库已关联 Cloudflare Workers Builds，推送到 `origin/main` 后自动构建部署上线（`https://xyz.keyi.ma`）。
+- **当前仓库状态**：`npm test` **41/41** 全部通过；仓库已关联 Cloudflare Workers Builds，推送到 `origin/main` 后自动构建部署上线（`https://xyz.keyi.ma`）。

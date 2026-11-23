@@ -348,6 +348,11 @@
   - 修改：`flushProgressNow` 依据 `audio.ended` 决定 `finished`。中途手动切集的行为不变。
   - 验证：新增 `test/player.test.js`（加载 `app.js` 中真实的 `methods`，配假 `<audio>` 和假 localStorage），修复前 2 项失败、修复后通过。本地 `wrangler dev` + Playwright 用 1.2 秒真实音频检查：Chromium、WebKit 各 12 项通过；换回未修复的 `app.js` 时连播后 `finished:false`、播放列表无「已播完」、`pagehide` 后标记丢失，3 项失败。
 
+- [x] **FIX-02** 暂停时移除当前单集，不再自动播放下一集。
+  - 原因：`removeFromQueue` 移除当前单集时直接调用 `playTrack(nextTrack)`，而它总会执行 `audio.play()`，暂停状态下也会开始播放。
+  - 修改：`playTrack` 新增 `autoplay` 选项；`removeFromQueue` 按移除前的 `audio.paused` 决定是否自动播放。暂停时下一集只加载，`isPlaying` 和 `isBuffering` 均为 `false`。
+  - 验证：`test/player.test.js` 增加暂停移除、播放中移除和中途切集 3 项（修复前「暂停移除」失败），`npm test` 41/41。同一套 Playwright 检查在 Chromium、WebKit 各 12 项通过：暂停移除后 `audio.paused === true`、迷你栏为播放图标且无加载动画，之后按播放键可正常播放；播放中移除则下一集继续播放。资源版本 `app.js?v=42`、`sw.js v16`。
+
 ## 交接日志（Handover Log）
 
 | 日期 | 阶段/任务 | 完成/变更摘要 | 验证状态 | 遗留/下一步 |
@@ -422,3 +427,4 @@
 | 2026-11-23 | UI-27 | 手动关注 PID 或小宇宙链接 | Chromium、WebKit 按钮流程及持久化验证通过，单测 28/28 | 随 main 推送至 Workers Builds |
 | 2026-11-23 | PERF-05 | 榜单接口去掉无筛选请求的 `COUNT(*)`，带筛选的计数按版本缓存 | 单测 36/36；本地 workerd 实测首页读取 8,277 → 86 行 | 排序查询的全表扫描待处理 |
 | 2026-11-23 | FIX-01 | 连播切集和关闭页面不再覆盖「已播完」标记 | 单测 38/38；Chromium、WebKit 真实音频检查各 12 项通过 | 本地验证，未部署 |
+| 2026-11-23 | FIX-02 | 暂停时移除当前单集只加载下一集，不自动播放 | 单测 41/41；Chromium、WebKit 真实音频检查各 12 项通过 | 本地验证，未部署 |

@@ -568,6 +568,8 @@ const AppRoot = {
       }
       const audio = this.$refs.audioEl;
       if (!audio) return;
+      // `autoplay: false` loads the episode into a paused player.
+      const autoplay = options.autoplay !== false;
 
       this.flushProgressNow();
       this.lastProgressSaveMs = 0;
@@ -607,7 +609,7 @@ const AppRoot = {
         this.pendingSeekSeconds = targetSeek;
         this.player.currentTime = targetSeek || 0;
         this.player.duration = track.duration || 0;
-        this.player.isBuffering = true;
+        this.player.isBuffering = autoplay;
         audio.src = track.enclosureUrl;
         audio.load();
       } else if (targetSeek !== null) {
@@ -622,6 +624,12 @@ const AppRoot = {
       audio.playbackRate = this.player.playbackRate;
       audio.muted = Boolean(this.player.isMuted);
       this.updateMediaSessionMetadata(track);
+
+      if (!autoplay) {
+        this.player.isPlaying = false;
+        this.player.isBuffering = false;
+        return;
+      }
 
       try {
         await audio.play();
@@ -688,7 +696,8 @@ const AppRoot = {
           }
         } else {
           const nextTrack = nextQueue[Math.min(idx, nextQueue.length - 1)];
-          this.playTrack(nextTrack);
+          // Loading the next episode must not start playback the user had paused.
+          this.playTrack(nextTrack, { autoplay: audio ? !audio.paused : this.player.isPlaying });
           return;
         }
       }

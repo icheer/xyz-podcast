@@ -132,3 +132,46 @@ test("leaving the page after the last episode ends keeps it marked as finished",
 
   assert.deepEqual(savedProgress("a"), { currentTime: 600, duration: 600, finished: true });
 });
+
+test("removing the current episode while paused loads the next one without playing it", async () => {
+  const a = track("a");
+  const b = track("b");
+  const { ctx, audio } = createHarness({ queue: [a, b], currentEid: "a", currentTime: 120, duration: 600, paused: true });
+
+  await ctx.removeFromQueue("a");
+  await settle();
+
+  assert.equal(ctx.player.currentEid, "b");
+  assert.deepEqual(ctx.player.queue.map((item) => item.eid), ["b"]);
+  assert.equal(audio.src, b.enclosureUrl);
+  assert.ok(audio.calls.includes("load"), "the next episode is loaded");
+  assert.ok(!audio.calls.includes("play"), "a paused player must not start playing");
+  assert.equal(audio.paused, true);
+  assert.equal(ctx.player.isPlaying, false);
+  assert.equal(ctx.player.isBuffering, false, "the play button is shown, not a spinner");
+});
+
+test("removing the current episode while playing starts the next one", async () => {
+  const a = track("a");
+  const b = track("b");
+  const { ctx, audio } = createHarness({ queue: [a, b], currentEid: "a", currentTime: 120, duration: 600, paused: false });
+
+  await ctx.removeFromQueue("a");
+  await settle();
+
+  assert.equal(ctx.player.currentEid, "b");
+  assert.deepEqual(audio.calls, ["load", "play"]);
+  assert.equal(audio.paused, false);
+});
+
+test("switching to another episode in the middle saves the position without marking it finished", async () => {
+  const a = track("a");
+  const b = track("b");
+  const { ctx, audio } = createHarness({ queue: [a, b], currentEid: "a", currentTime: 120, duration: 600, paused: false });
+
+  await ctx.playTrack(b, { moveToFront: true });
+
+  assert.deepEqual(savedProgress("a"), { currentTime: 120, duration: 600, finished: false });
+  assert.deepEqual(ctx.player.queue.map((item) => item.eid), ["b", "a"]);
+  assert.deepEqual(audio.calls, ["load", "play"]);
+});
