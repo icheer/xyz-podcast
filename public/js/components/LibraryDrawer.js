@@ -1,4 +1,4 @@
-import { fetchEpisodeDetail } from "../api.js";
+import { fetchEpisodeDetail, fetchPodcastDetail } from "../api.js";
 import {
   buildOpmlXml,
   exportUserDataObject,
@@ -9,6 +9,7 @@ import {
   formatDurationSeconds,
   formatProgressBadge,
   inlineConfirmMixin,
+  parsePodcastId,
 } from "../utils.js";
 import AppIcon from "./AppIcon.js";
 
@@ -37,6 +38,7 @@ export default {
   data() {
     return {
       activeTab: "favorites", // "favorites" | "history"
+      addingPodcast: false,
       busyEid: "",
       undoState: null,
       undoTimer: null,
@@ -104,6 +106,35 @@ export default {
       if (!eid) return;
       this.playerActions.navigateFromPlayer(`/episode/${eid}`);
     },
+    async handleAddPodcast() {
+      if (this.addingPodcast) return;
+      const input = window.prompt("请输入小宇宙播客 PID 或完整的播客链接");
+      if (input === null) return;
+
+      const pid = parsePodcastId(input);
+      if (!pid) {
+        this.playerActions.showToast("请输入有效的播客 PID 或小宇宙播客链接");
+        return;
+      }
+      if (this.playerActions.isFavoritePodcast(pid)) {
+        this.playerActions.showToast("已关注该播客");
+        return;
+      }
+
+      this.addingPodcast = true;
+      try {
+        const { podcast } = await fetchPodcastDetail(pid, { forceRefresh: true });
+        if (podcast?.pid !== pid || !podcast.title?.trim()) {
+          this.playerActions.showToast("未找到对应的小宇宙播客");
+          return;
+        }
+        this.playerActions.addFavoritePodcast(podcast);
+      } catch {
+        this.playerActions.showToast("无法验证该播客，请检查链接或稍后重试");
+      } finally {
+        this.addingPodcast = false;
+      }
+    },
     unfollowPodcast(pod) {
       this.setUndo({
         type: "favorite",
@@ -136,7 +167,7 @@ export default {
     handleUndo() {
       if (!this.undoState) return;
       if (this.undoState.type === "favorite" && this.undoState.pod) {
-        this.playerActions.toggleFavoritePodcast(this.undoState.pod, { silentToast: true });
+        this.playerActions.addFavoritePodcast(this.undoState.pod, { silentToast: true });
       } else if (this.undoState.type === "history" && this.undoState.progressMap) {
         this.playerActions.restoreProgressSnapshot(this.undoState.progressMap);
       }
@@ -260,6 +291,16 @@ export default {
           </div>
           <div class="drawer-head-actions">
             <button
+              v-if="activeTab === 'favorites'"
+              type="button"
+              class="btn sm"
+              :disabled="addingPodcast"
+              @click="handleAddPodcast"
+            >
+              <app-icon name="plus" :size="14" />
+              <span>{{ addingPodcast ? '验证中…' : '手动添加' }}</span>
+            </button>
+            <button
               v-if="activeTab === 'history' && historyItems.length > 0"
               type="button"
               data-clear-confirm
@@ -306,7 +347,7 @@ export default {
         <div v-if="activeTab === 'favorites'" class="drawer-body">
           <div v-if="favorites.length === 0" class="queue-empty">
             <app-icon name="heart" :size="28" />
-            <p>还没有关注的播客<br />在热门播客榜或频道页点击「关注」即可收藏</p>
+            <p>还没有关注的播客<br />点击「手动添加」或在榜单和频道页关注播客</p>
           </div>
           <div
             v-else

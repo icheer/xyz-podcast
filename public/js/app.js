@@ -3,6 +3,7 @@ import { createOverlayHistory } from "./overlayHistory.js";
 import {
   LOOP_MODES,
   PLAYBACK_RATES,
+  addFavoritePodcast,
   clearAllProgress,
   loadFavorites,
   loadPrefs,
@@ -182,6 +183,7 @@ const AppRoot = {
         setPlaylistOpen: this.setPlaylistOpen,
         setLibraryOpen: this.setLibraryOpen,
         isFavoritePodcast: this.isFavoritePodcast,
+        addFavoritePodcast: this.handleAddFavoritePodcast,
         toggleFavoritePodcast: this.handleToggleFavoritePodcast,
         removeProgressItem: this.removeProgressItem,
         clearProgressHistory: this.clearProgressHistory,
@@ -342,6 +344,13 @@ const AppRoot = {
     isFavoritePodcast(pid) {
       if (!pid) return false;
       return this.favoritePidSet.has(String(pid));
+    },
+    handleAddFavoritePodcast(pod, { silentToast = false } = {}) {
+      const { favorites, added } = addFavoritePodcast(pod);
+      this.player.favorites = favorites;
+      if (!silentToast) {
+        this.showToast(added ? `已关注「${pod.title}」` : "已关注该播客");
+      }
     },
     handleToggleFavoritePodcast(pod, { silentToast = false } = {}) {
       if (!pod?.pid) return false;

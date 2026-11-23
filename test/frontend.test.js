@@ -10,6 +10,7 @@ import {
   formatProgressBadge,
   injectTimestampButtons,
   inlineConfirmMixin,
+  parsePodcastId,
   parseTextWithTimestamps,
   parseTimestampToSeconds,
   shouldIgnoreGlobalHotkey,
@@ -17,6 +18,7 @@ import {
 } from "../public/js/utils.js";
 import {
   MAX_PROGRESS_ENTRIES,
+  addFavoritePodcast,
   buildOpmlXml,
   clearAllProgress,
   exportUserDataObject,
@@ -48,6 +50,39 @@ function createMemoryStorage() {
     },
   };
 }
+
+test("parsePodcastId accepts a raw ID or an official podcast URL with query and hash", () => {
+  const pid = "69b179543086b6673e3a08c7";
+  assert.equal(parsePodcastId(` ${pid}\n`), pid);
+  assert.equal(parsePodcastId(`https://www.xiaoyuzhoufm.com/podcast/${pid}?ref=test#top`), pid);
+  assert.equal(parsePodcastId(`https://xiaoyuzhoufm.com/podcast/${pid}/#top`), pid);
+
+  for (const value of [
+    null,
+    "",
+    "short",
+    `https://www.xiaoyuzhoufm.com/episode/${pid}`,
+    `https://www.xiaoyuzhoufm.com/podcast/${pid}/episodes`,
+    `https://www.xiaoyuzhoufm.com.example.org/podcast/${pid}`,
+    `https://www.xiaoyuzhoufm.com@example.org/podcast/${pid}`,
+  ]) {
+    assert.equal(parsePodcastId(value), "");
+  }
+});
+
+test("addFavoritePodcast preserves the existing entry when the same PID is added again", () => {
+  const storage = createMemoryStorage();
+  const pid = "69b179543086b6673e3a08c7";
+  const podcast = { pid, title: "播客", rssUrl: "https://example.org/feed.xml", addedAt: 123 };
+  const first = addFavoritePodcast(podcast, storage);
+  assert.equal(first.added, true);
+  assert.equal(first.favorites[0].xyzUrl, `https://www.xiaoyuzhoufm.com/podcast/${pid}`);
+  assert.deepEqual(addFavoritePodcast({ pid, title: "重复添加" }, storage), {
+    added: false,
+    favorites: first.favorites,
+  });
+  assert.deepEqual(loadFavorites(storage), first.favorites);
+});
 
 test("smallImageUrl applies one thumbnail suffix only to supported image hosts", () => {
   const original = "https://image.xyzcdn.net/cover@2x.jpg";

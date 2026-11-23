@@ -199,13 +199,22 @@ export function saveFavorites(items, storage = defaultStorage()) {
   return safe;
 }
 
+export function addFavoritePodcast(pod, storage = defaultStorage()) {
+  return updateFavoritePodcast(pod, storage, { removeIfPresent: false });
+}
+
 export function toggleFavoritePodcast(pod, storage = defaultStorage()) {
+  return updateFavoritePodcast(pod, storage, { removeIfPresent: true });
+}
+
+function updateFavoritePodcast(pod, storage, { removeIfPresent }) {
   const pid = String(pod?.pid || "").trim();
   const current = loadFavorites(storage);
   if (!pid) return { favorites: current, added: false };
 
   const exists = current.some((item) => item.pid === pid);
   if (exists) {
+    if (!removeIfPresent) return { favorites: current, added: false };
     const next = saveFavorites(
       current.filter((item) => item.pid !== pid),
       storage

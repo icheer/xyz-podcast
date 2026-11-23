@@ -6,6 +6,26 @@ export function smallImageUrl(src) {
   );
 }
 
+export function parsePodcastId(input) {
+  const value = typeof input === "string" ? input.trim() : "";
+  const idPattern = /^[a-zA-Z0-9]{16,40}$/;
+  if (idPattern.test(value)) return value;
+
+  try {
+    const url = new URL(value);
+    if (
+      !["https:", "http:"].includes(url.protocol) ||
+      !["www.xiaoyuzhoufm.com", "xiaoyuzhoufm.com"].includes(url.hostname) ||
+      url.port || url.username || url.password
+    ) return "";
+
+    const pid = /^\/podcast\/([^/]+)\/?$/.exec(url.pathname)?.[1] || "";
+    return idPattern.test(pid) ? pid : "";
+  } catch {
+    return "";
+  }
+}
+
 /**
  * Format seconds into MM:SS or HH:MM:SS.
  */
