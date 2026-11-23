@@ -353,6 +353,9 @@
   - 修改：`playTrack` 新增 `autoplay` 选项；`removeFromQueue` 按移除前的 `audio.paused` 决定是否自动播放。暂停时下一集只加载，`isPlaying` 和 `isBuffering` 均为 `false`。
   - 验证：`test/player.test.js` 增加暂停移除、播放中移除和中途切集 3 项（修复前「暂停移除」失败），`npm test` 41/41。同一套 Playwright 检查在 Chromium、WebKit 各 12 项通过：暂停移除后 `audio.paused === true`、迷你栏为播放图标且无加载动画，之后按播放键可正常播放；播放中移除则下一集继续播放。资源版本 `app.js?v=42`、`sw.js v16`。
 
+- [/] **CI-01** 部署前门禁：ESLint、模块冒烟测试、GitHub Actions 与 `npm run deploy` 前自动检查。
+  - ESLint 10（`eslint.config.js`，`eslint:recommended`），新增 `npm run lint`。推荐规则在现有代码中只报 3 处「重新抛错时丢失原始错误」，已改为保留 `cause`（`test/api.test.js` 覆盖兜底流程的 6 种结果，消息不变）。`npx eslint .` 通过。
+
 ## 交接日志（Handover Log）
 
 | 日期 | 阶段/任务 | 完成/变更摘要 | 验证状态 | 遗留/下一步 |

@@ -51,6 +51,7 @@ xyz-podcast/
 ├── .dev.vars                 # 本地密钥（不提交 git，如 ADMIN_KEY）
 ├── .dev.vars.example         # 本地密钥模板
 ├── .gitignore                # 忽略 node_modules、.wrangler、.dev.vars、.env
+├── eslint.config.js          # ESLint 扁平配置：eslint:recommended，按目录声明 Workers / 浏览器 / Node 全局变量
 ├── migrations/
 │   ├── 0001_init.sql         # D1 初始表结构
 │   └── 0002_rank_composite_keys.sql # 迁移榜单联合主键与索引
@@ -282,6 +283,9 @@ curl "http://localhost:8787/__scheduled?cron=*/2+0+*+*+*"
 
 # 运行单元测试（Parser、工具函数、Sync 状态机）
 npm test                     # node --test
+
+# 代码规范检查（ESLint 推荐规则，提交前必须通过）
+npm run lint                 # eslint .
 
 # 部署到 Cloudflare（先应用远程 D1 migration）
 npx wrangler d1 migrations apply xyz-podcast-db --remote

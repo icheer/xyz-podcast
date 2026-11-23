@@ -256,10 +256,11 @@ done
 curl "http://127.0.0.1:8787/__scheduled?cron=*/2+0+*+*+*"
 ```
 
-### 4. 运行单元测试
+### 4. 运行单元测试与代码检查
 
 ```bash
 npm test
+npm run lint
 ```
 
 ---
