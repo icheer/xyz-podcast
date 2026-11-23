@@ -72,6 +72,8 @@ migrations_dir = "migrations"
 
 命令只需粘贴到 Cloudflare 的配置框，由 Cloudflare 执行。它会先应用尚未执行的 D1 迁移，再发布 Worker 和 `public/` 静态资源；后续部署不会重复执行已完成的迁移。参见 [构建配置](https://developers.cloudflare.com/workers/ci-cd/builds/configuration/) 与 [D1 迁移说明](https://developers.cloudflare.com/d1/reference/migrations/)。
 
+**部署前会自动检查。** `npm run deploy` 通过 npm 的 `predeploy` 钩子先执行 `npm run check`（ESLint 和全部测试，含前端模块与模板的冒烟检查）；任何一项失败都会让这次构建失败，不会发布。检查发生在 D1 迁移之后；如果希望先检查再迁移，把部署命令改成 `npm run check && npm run db:migrate:remote && npm run deploy`。仓库自带的 GitHub Actions 工作流在推送到 `main` 和提交 Pull Request 时运行同一套检查。
+
 **部署令牌需要包含 D1 权限。** 在构建设置的 **API token** 中选择具备目标账号 `Workers Scripts:Edit` 和 `D1:Edit` 等所需部署权限的令牌。Cloudflare 自动创建的构建令牌默认权限列表未包含 D1；可在 **个人资料 → API Tokens** 编辑该令牌、保留原有部署权限并补上 **Account → D1 → Edit**，或创建具有相应权限的令牌后在构建设置中选择它。详见 [Workers Builds 令牌权限](https://developers.cloudflare.com/workers/ci-cd/builds/configuration/#api-token)。令牌不需要写进仓库。
 
 点击 **保存并部署**。成功后访问控制台提供的 `workers.dev` 地址。以后向生产分支 `git push`，或直接在 GitHub 网页编辑并提交，都会触发自动部署；在 Worker 的 **部署 / Builds** 中查看结果。
@@ -259,8 +261,9 @@ curl "http://127.0.0.1:8787/__scheduled?cron=*/2+0+*+*+*"
 ### 4. 运行单元测试与代码检查
 
 ```bash
-npm test
 npm run lint
+npm test
+npm run check               # 等于上面两条；npm run deploy 前会自动执行
 ```
 
 `npm test` 除了各模块的单元测试，还会检查所有前端模块能否解析、导入是否存在、Vue 模板能否编译，因此需要 Node.js 22.13 或更高版本。

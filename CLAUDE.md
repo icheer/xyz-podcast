@@ -29,7 +29,7 @@ This file guides Claude Code when working in this repository.
 - Full permissions are granted: read, write, edit, and execute without asking.
 - Commit after every meaningful change; never batch unrelated work.
 - Use conventional commits (`feat:` `fix:` `docs:` `refactor:` `test:` `chore:`); the message says what changed and why.
-- Run the tests and linter before declaring any task done.
+- Run the tests and linter before declaring any task done: `npm run check`.
 - Keep README and docs in sync with code changes.
 
 ## Codeman Environment

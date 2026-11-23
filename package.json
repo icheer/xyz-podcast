@@ -10,7 +10,9 @@
     "db:migrate:local": "wrangler d1 migrations apply xyz-podcast-db --local",
     "db:migrate:remote": "wrangler d1 migrations apply xyz-podcast-db --remote",
     "test": "node --test test/*.test.js",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "check": "npm run lint && npm test",
+    "predeploy": "npm run check"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

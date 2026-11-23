@@ -353,9 +353,12 @@
   - 修改：`playTrack` 新增 `autoplay` 选项；`removeFromQueue` 按移除前的 `audio.paused` 决定是否自动播放。暂停时下一集只加载，`isPlaying` 和 `isBuffering` 均为 `false`。
   - 验证：`test/player.test.js` 增加暂停移除、播放中移除和中途切集 3 项（修复前「暂停移除」失败），`npm test` 41/41。同一套 Playwright 检查在 Chromium、WebKit 各 12 项通过：暂停移除后 `audio.paused === true`、迷你栏为播放图标且无加载动画，之后按播放键可正常播放；播放中移除则下一集继续播放。资源版本 `app.js?v=42`、`sw.js v16`。
 
-- [/] **CI-01** 部署前门禁：ESLint、模块冒烟测试、GitHub Actions 与 `npm run deploy` 前自动检查。
+- [x] **CI-01** 部署前门禁：ESLint、模块冒烟测试、GitHub Actions 与 `npm run deploy` 前自动检查。
   - ESLint 10（`eslint.config.js`，`eslint:recommended`），新增 `npm run lint`。推荐规则在现有代码中只报 3 处「重新抛错时丢失原始错误」，已改为保留 `cause`（`test/api.test.js` 覆盖兜底流程的 6 种结果，消息不变）。`npx eslint .` 通过。
   - 新增 `test/smoke.test.js`：对所有 JS 模块执行 `node --check`；按源码里的 `import` 语句逐个核对被导入的导出是否存在（入口 `app.js` 和 `sw.js` 不执行）；用与 `index.html` 同版本的 `@vue/compiler-dom`（锁定 3.5.45）编译全部组件模板及 `app.js` 内的根模板和 404 模板；校验两者版本一致。在临时副本中分别注入语法错误、导入不存在的导出、入口模板损坏、Vue 版本漂移，对应测试均失败；正常代码 4/4 通过，约 0.8 秒。
+  - `package.json` 新增 `check`（`npm run lint && npm test`）和 `predeploy` 钩子。README 约定的部署命令是 `npm run db:migrate:remote && npm run deploy`，因此 Workers Builds 和本地 CLI 部署都会先跑检查；Cloudflare 文档写明 Workers Builds 不读取 `wrangler.toml` 的自定义构建命令，所以没有使用该配置。检查发生在迁移之后，README 给出了「先检查再迁移」的可选部署命令。
+  - `.github/workflows/ci.yml` 在推送到 `main` 和 PR 时用 Node 24 执行 `npm ci` 与 `npm run check`（`actions/checkout@v7`、`actions/setup-node@v7`）。
+  - 验证：Node 26 与 Node 24.22.1（Workers Builds 的默认版本）下 `npm run check` 均通过；在临时目录用新的锁文件执行 `npm ci` 成功；`npm run deploy -- --dry-run`（带无效令牌，不会发布）先完成 lint 和 51 项测试，再进入 `wrangler deploy` 的 dry run；把一个组件的模板改坏后（lint 不报），冒烟测试失败，同一命令以状态 1 退出，没有执行到 `wrangler deploy`。未在 GitHub 上运行工作流，也未触发线上构建。
 
 ## 交接日志（Handover Log）
 
@@ -432,3 +435,4 @@
 | 2026-11-23 | PERF-05 | 榜单接口去掉无筛选请求的 `COUNT(*)`，带筛选的计数按版本缓存 | 单测 36/36；本地 workerd 实测首页读取 8,277 → 86 行 | 排序查询的全表扫描待处理 |
 | 2026-11-23 | FIX-01 | 连播切集和关闭页面不再覆盖「已播完」标记 | 单测 38/38；Chromium、WebKit 真实音频检查各 12 项通过 | 本地验证，未部署 |
 | 2026-11-23 | FIX-02 | 暂停时移除当前单集只加载下一集，不自动播放 | 单测 41/41；Chromium、WebKit 真实音频检查各 12 项通过 | 本地验证，未部署 |
+| 2026-11-23 | CI-01 | ESLint、模块冒烟测试、GitHub Actions 与部署前自动检查 | Node 24/26 下 `npm run check` 通过，单测 51/51；门禁拦截实测通过 | 工作流待推送后首次运行；Workers Builds 需保持部署命令为 `npm run deploy` |

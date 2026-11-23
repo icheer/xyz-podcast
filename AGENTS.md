@@ -51,6 +51,7 @@ xyz-podcast/
 ├── .dev.vars                 # 本地密钥（不提交 git，如 ADMIN_KEY）
 ├── .dev.vars.example         # 本地密钥模板
 ├── .gitignore                # 忽略 node_modules、.wrangler、.dev.vars、.env
+├── .github/workflows/ci.yml  # GitHub Actions：推送到 main 和 PR 时运行 npm run check
 ├── eslint.config.js          # ESLint 扁平配置：eslint:recommended，按目录声明 Workers / 浏览器 / Node 全局变量
 │   （devDependency @vue/compiler-dom 与 index.html 的 Vue 版本必须一致，由 smoke 测试校验）
 ├── migrations/
@@ -266,7 +267,7 @@ xyz-podcast/
 
 ## 7. 常用命令与验证方式
 
-生产部署推荐参考README的Fork+Cloudflare Workers Builds控制台流程；部署命令为 `npm run db:migrate:remote && npm run deploy`，构建命令留空。Fork用户先创建自己的D1并修改database_id，构建令牌需包含D1编辑权限；已有Worker可在设置→Builds连接仓库，保持Worker名称与数据库配置一致。下方命令主要供本地开发和可选CLI部署使用。
+生产部署推荐参考README的Fork+Cloudflare Workers Builds控制台流程；部署命令为 `npm run db:migrate:remote && npm run deploy`，构建命令留空。`npm run deploy` 会先经 npm 的 `predeploy` 钩子执行 `npm run check`（ESLint 与全部测试），不通过则不发布；`.github/workflows/ci.yml` 在推送到 `main` 和 PR 时运行同一检查。Workers Builds 不读取 `wrangler.toml` 里的自定义构建命令，门禁依赖部署命令保持为 `npm run deploy`。Fork用户先创建自己的D1并修改database_id，构建令牌需包含D1编辑权限；已有Worker可在设置→Builds连接仓库，保持Worker名称与数据库配置一致。下方命令主要供本地开发和可选CLI部署使用。
 
 > 随着项目推进，以下脚本需在 `package.json` 中落地并保持文档同步。
 
@@ -290,6 +291,9 @@ npm test                     # node --test；需要 Node >= 22.13（node:sqlite�
 # 代码规范检查（ESLint 推荐规则，提交前必须通过）
 npm run lint                 # eslint .
 
+# 提交前与部署前的完整门禁（npm run deploy 经 predeploy 钩子自动执行）
+npm run check                # npm run lint && npm test
+
 # 部署到 Cloudflare（先应用远程 D1 migration）
 npx wrangler d1 migrations apply xyz-podcast-db --remote
 npm run deploy               # npx wrangler deploy
@@ -305,7 +309,7 @@ npm run deploy               # npx wrangler deploy
 3. 一次聚焦一个清晰的任务或里程碑；开始前将对应条目在 `CHECKLIST.md` 中标记为 `[/]`。
 
 ### 8.2 完成工作流（每次停笔/提交前）
-1. 运行与本次改动匹配的验证（单元测试 `npm test`、本地 `wrangler dev` 实测接口/页面、语法检查等），**严禁未验证即标记完成**。
+1. 运行与本次改动匹配的验证：先执行 `npm run check`（ESLint 与全部测试，任何一项未通过都不得提交），再做与改动匹配的本地 `wrangler dev` 实测或真实浏览器检查，**严禁未验证即标记完成**。
 2. 更新 `CHECKLIST.md`：将完成项改为 `[x]`，并简要写明**验证方式与实测结果**（或阻塞原因 `[!]`）。
 3. 更新本文档第 9 节 **"当前进度与交接快照"**（以及如有结构/接口变更同步更新第 2~7 节）。
 4. 按 `CLAUDE.md` 规范做原子化 git commit（Conventional Commits：`feat:` / `fix:` / `docs:` / `test:` / `chore:`）。
@@ -315,6 +319,7 @@ npm run deploy               # npx wrangler deploy
 ## 9. 当前进度与交接快照
 
 - **最后更新**：2026-11-23
+- **部署前门禁**：`CI-01` 新增 ESLint 10（`npm run lint`）、模块冒烟测试 `test/smoke.test.js`（逐个模块 `node --check`、按 `import` 语句核对导出、用与页面同版本的 `@vue/compiler-dom` 编译全部模板）、GitHub Actions 工作流，以及 `predeploy` 钩子（`npm run deploy` 前自动执行 `npm run check`，不通过则不发布）。推荐规则报出的 3 处重新抛错已保留 `cause`，兜底流程由 `test/api.test.js` 覆盖。`npm run check` 在 Node 24 与 Node 26 下通过，`npm test` 51/51。资源版本 `app.js?v=43`、`sw.js v17`。
 - **已播完标记**：`FIX-01` 修复连播切集、关闭页面时把刚播完的单集覆盖成未播完的问题（`flushProgressNow` 改为依据 `audio.ended` 保留 `finished`）。`test/player.test.js` 驱动根组件真实方法，Chromium、WebKit 各 12 项真实音频播放检查通过（未修复时失败）。
 - **暂停时移除当前单集**：`FIX-02` 修复移除当前单集后下一集自动开始播放的问题，暂停状态下只加载不播放，播放中则照常接续。同一套浏览器检查在 Chromium、WebKit 各 12 项通过，资源版本 `app.js?v=42`、`sw.js v16`。
 - **榜单读取额度**：`PERF-05` 去掉已发布版本无筛选请求的 `COUNT(*)`，改读同一请求里已有的 `board_meta.total`；带筛选的计数按版本缓存在 isolate 内存。响应格式不变。本地 workerd 实测热门播客首页 8,277 → 86 行、第 6 页 8,677 → 486 行、热门单集首页 918 → 126 行；非排名列排序仍需全表扫描（热门播客约 16,400 行/次），待后续处理。新增 `test/boards.test.js` 对真实 SQLite 验证 8 项，`npm test` 36/36。
@@ -363,4 +368,4 @@ npm run deploy               # npx wrangler deploy
 - **最新 P3 样式与代码架构整理（2026-11-18）**：`REFACTOR-P3` 已完成落盘：
   - **`public/css/app.css` 单源化级联重构**：彻底消除多轮迭代追加在尾部的 ~80 处重复选择器覆盖与 5 处分散 `@media (min-width: 768px)`，按职责重组为 11 个单源章节（Design Tokens、Reset & Primitives、Header、About Dialog、Board Toolbar & Skeletons、Mobile Rank Cards、Desktop Rank Table、Detail Pages/Shownotes/Comments、Mini & Full Player、Drawers/Toast/Transitions、Consolidated Breakpoints），100% 保持已验收的视觉表现与优先级。
   - **跨组件去重、队列背景进度条、原地二次确认与 Android PWA 导航栏修复**：`PlaylistDrawer` 移除易被长播客名截断的行内橙色 `已听 n%` 文本，改用基于 `--listen-pct` 的条目左→右柔和背景色填充；`utils.js` 新增 `inlineConfirmMixin` 为播放列表「清空」与收听历史「清空历史」提供无弹窗的**红色原地二次确认**（首次点击变红为「确认清空」并保持 3.5 秒，再次点击执行且仍保留底部 5 秒撤销，点击面板其余位置/切 Tab/按 Esc 自动解除），抽离 `computeProgressPercent` 与 `formatProgressBadge` 统一四处收听进度逻辑；`api.js` 为前端内存详情缓存增加 `MAX_DETAIL_CACHE = 60` FIFO 淘汰上限；`site.webmanifest` 移除写死的品牌橙 `"theme_color": "#e04f26"`（并将 `background_color` 对齐 `#f7f4ec`），交由 `index.html` 的浅/深双 `prefers-color-scheme` `<meta name="theme-color">` 与运行时脚本控制状态栏，避免 Android Chrome WebAPK（如 Pixel 4 XL 三键导航栏）将底部虚拟导航栏静态染成刺眼橙色。资源版本升至 `app.css?v=33`、`app.js?v=35`，`sw.js` 升至 `v8`。
-- **当前仓库状态**：`npm test` **41/41** 全部通过；仓库已关联 Cloudflare Workers Builds，推送到 `origin/main` 后自动构建部署上线（`https://xyz.keyi.ma`）。
+- **当前仓库状态**：`npm test` **51/51** 全部通过；仓库已关联 Cloudflare Workers Builds，推送到 `origin/main` 后自动构建部署上线（`https://xyz.keyi.ma`）。
