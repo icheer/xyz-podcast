@@ -27,7 +27,7 @@ export function extractNextData(html) {
   try {
     return JSON.parse(match[1]);
   } catch (err) {
-    throw new Error(`Failed to parse __NEXT_DATA__ JSON: ${err.message}`);
+    throw new Error(`Failed to parse __NEXT_DATA__ JSON: ${err.message}`, { cause: err });
   }
 }
 

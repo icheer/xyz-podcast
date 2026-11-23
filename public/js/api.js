@@ -76,18 +76,19 @@ async function fetchWithFallback(directUrl, fallbackApiUrl, parseFn, id) {
     return parseFn(html, id);
   } catch (directErr) {
     if (directErr?.statusCode === 404) throw directErr;
+    let fallbackErr;
     try {
       return await requestJson(fallbackApiUrl);
-    } catch (fallbackErr) {
-      if (String(fallbackErr?.message || "").includes("CF-Worker")) {
-        throw new Error(
-          directErr?.statusCode === 504
-            ? directErr.message
-            : "暂无法从网页获取该小宇宙内容（可能为无效 ID、受限页面或网络异常），请前往小宇宙官网查看"
-        );
-      }
-      throw fallbackErr;
+    } catch (err) {
+      fallbackErr = err;
     }
+    if (!String(fallbackErr?.message || "").includes("CF-Worker")) throw fallbackErr;
+    throw new Error(
+      directErr?.statusCode === 504
+        ? directErr.message
+        : "暂无法从网页获取该小宇宙内容（可能为无效 ID、受限页面或网络异常），请前往小宇宙官网查看",
+      { cause: directErr }
+    );
   }
 }
 

@@ -303,7 +303,9 @@ async function fetchBoardPage(fetchFn, board, offset, limit = PAGE_LIMIT, timeou
     return data;
   } catch (err) {
     if (err?.name === "AbortError") {
-      throw new Error(`Upstream ${board} offset=${offset} timed out after ${timeoutMs}ms`);
+      throw new Error(`Upstream ${board} offset=${offset} timed out after ${timeoutMs}ms`, {
+        cause: err,
+      });
     }
     throw err;
   } finally {
