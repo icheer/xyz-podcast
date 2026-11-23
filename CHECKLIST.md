@@ -355,6 +355,7 @@
 
 - [/] **CI-01** 部署前门禁：ESLint、模块冒烟测试、GitHub Actions 与 `npm run deploy` 前自动检查。
   - ESLint 10（`eslint.config.js`，`eslint:recommended`），新增 `npm run lint`。推荐规则在现有代码中只报 3 处「重新抛错时丢失原始错误」，已改为保留 `cause`（`test/api.test.js` 覆盖兜底流程的 6 种结果，消息不变）。`npx eslint .` 通过。
+  - 新增 `test/smoke.test.js`：对所有 JS 模块执行 `node --check`；按源码里的 `import` 语句逐个核对被导入的导出是否存在（入口 `app.js` 和 `sw.js` 不执行）；用与 `index.html` 同版本的 `@vue/compiler-dom`（锁定 3.5.45）编译全部组件模板及 `app.js` 内的根模板和 404 模板；校验两者版本一致。在临时副本中分别注入语法错误、导入不存在的导出、入口模板损坏、Vue 版本漂移，对应测试均失败；正常代码 4/4 通过，约 0.8 秒。
 
 ## 交接日志（Handover Log）
 

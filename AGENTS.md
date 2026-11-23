@@ -52,6 +52,7 @@ xyz-podcast/
 ├── .dev.vars.example         # 本地密钥模板
 ├── .gitignore                # 忽略 node_modules、.wrangler、.dev.vars、.env
 ├── eslint.config.js          # ESLint 扁平配置：eslint:recommended，按目录声明 Workers / 浏览器 / Node 全局变量
+│   （devDependency @vue/compiler-dom 与 index.html 的 Vue 版本必须一致，由 smoke 测试校验）
 ├── migrations/
 │   ├── 0001_init.sql         # D1 初始表结构
 │   └── 0002_rank_composite_keys.sql # 迁移榜单联合主键与索引
@@ -96,11 +97,13 @@ xyz-podcast/
 └── test/                     # Node 内置 test runner (node --test) 单元测试
     ├── helpers/
     │   └── sqliteD1.js        # 基于 node:sqlite 的最小 D1 绑定，让测试对真实迁移和 SQL 运行
+    ├── api.test.js            # 小宇宙详情的浏览器直连与 Worker 兜底流程（替换全局 fetch）
     ├── boards.test.js         # 榜单接口：排序、搜索、分页、趋势及每次请求的 COUNT(*) 次数
     ├── player.test.js         # 根组件真实 methods + 假 <audio>：已播完标记、移除当前单集后的播放状态
     ├── frontend.test.js
     ├── parser.test.js
     ├── schema.test.js
+    ├── smoke.test.js          # 冒烟：每个模块可解析、导入的导出存在、组件模板可被 Vue 编译器编译
     └── sync.test.js
 ```
 
@@ -281,8 +284,8 @@ npm run dev                  # 等价于 npx wrangler dev
 npx wrangler dev --test-scheduled
 curl "http://localhost:8787/__scheduled?cron=*/2+0+*+*+*"
 
-# 运行单元测试（Parser、工具函数、Sync 状态机）
-npm test                     # node --test
+# 运行单元测试（Parser、工具函数、Sync 状态机、榜单接口、播放器、冒烟）
+npm test                     # node --test；需要 Node >= 22.13（node:sqlite）
 
 # 代码规范检查（ESLint 推荐规则，提交前必须通过）
 npm run lint                 # eslint .
