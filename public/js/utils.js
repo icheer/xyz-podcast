@@ -1,3 +1,11 @@
+export function smallImageUrl(src) {
+  if (typeof src !== "string") return "";
+  return src.trim().replace(
+    /^((?:https?:)?\/\/(?:image\.xyzcdn\.net|xyzrank\.justinbot\.com)\/[^?#]+?)(?:(?:@|%40)(?:thumbnail|small|middle|large))?([?#].*)?$/i,
+    "$1@small$2"
+  );
+}
+
 /**
  * Format seconds into MM:SS or HH:MM:SS.
  */
@@ -194,9 +202,17 @@ export function renderShownotesHtml(rawHtml, purify) {
   const clean = purify.sanitize(rawHtml, {
     FORBID_TAGS: ["script", "style", "iframe", "object", "embed"],
     ADD_ATTR: ["target", "rel", "data-timestamp"],
+    RETURN_DOM_FRAGMENT: true,
   });
+  for (const img of clean.querySelectorAll("img[src]")) {
+    const src = img.getAttribute("src");
+    const smallSrc = smallImageUrl(src);
+    if (smallSrc !== src) img.setAttribute("src", smallSrc);
+  }
+  const template = document.createElement("template");
+  template.content.append(clean);
   // Ensure external links open safely in a new tab (skip timestamp anchors)
-  const withSafeLinks = clean.replace(
+  const withSafeLinks = template.innerHTML.replace(
     /<a\b([^>]*?)>/gi,
     (m, attrs) => {
       if (/\bdata-timestamp\b/i.test(attrs)) return m;

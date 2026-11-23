@@ -244,7 +244,7 @@ export default {
               <app-icon name="grip-vertical" :size="16" />
             </span>
 
-            <img v-cover class="cover-thumb drawer-thumb" :src="item.image" :alt="item.title" />
+            <img v-cover="item.image" class="cover-thumb drawer-thumb" :alt="item.title" />
 
             <button
               type="button"

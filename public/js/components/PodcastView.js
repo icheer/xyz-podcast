@@ -168,7 +168,7 @@ export default {
       <template v-else-if="podcast">
         <section class="hero-card">
           <div class="hero-main">
-            <img v-cover class="hero-cover" :src="podcast.image" :alt="podcast.title" />
+            <img v-cover="podcast.image" class="hero-cover" :alt="podcast.title" />
             <div class="hero-info">
               <h1 class="hero-title">{{ podcast.title }}</h1>
               <div class="hero-meta tabular">
@@ -249,10 +249,9 @@ export default {
               @keydown.enter.self="$router.push('/episode/' + ep.eid)"
               @keydown.space.self.prevent="$router.push('/episode/' + ep.eid)">
               <div class="ep-row-top">
-                <img v-cover
+                <img v-cover="ep.image || podcast.image"
                   class="cover-thumb"
                   style="width: 52px; height: 52px;"
-                  :src="ep.image || podcast.image"
                   :alt="ep.title"
                   loading="lazy"
                 />

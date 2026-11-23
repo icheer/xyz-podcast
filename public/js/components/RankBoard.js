@@ -552,7 +552,7 @@ export default {
               <span v-else-if="entry.item.rankDelta > 0" class="rank-trend is-up" :title="'较上期上升 ' + entry.item.rankDelta + ' 位'">↑{{ entry.item.rankDelta }}</span>
               <span v-else-if="entry.item.rankDelta < 0" class="rank-trend is-down" :title="'较上期下降 ' + Math.abs(entry.item.rankDelta) + ' 位'">↓{{ Math.abs(entry.item.rankDelta) }}</span>
             </div>
-            <img v-cover class="cover-thumb" :src="entry.item.logoURL" :alt="entry.item.title || entry.item.name" loading="lazy" />
+            <img v-cover="entry.item.logoURL" class="cover-thumb" :alt="entry.item.title || entry.item.name" loading="lazy" />
 
             <div class="card-head-text">
               <div class="card-title">{{ isEpisodeBoard ? entry.item.title : entry.item.name }}</div>
@@ -693,7 +693,7 @@ export default {
               </td>
               <td class="title-col">
                 <div class="table-item-cell">
-                  <img v-cover class="table-cover" :src="entry.item.logoURL" :alt="entry.item.title" loading="lazy" />
+                  <img v-cover="entry.item.logoURL" class="table-cover" :alt="entry.item.title" loading="lazy" />
                   <div style="min-width:0">
                     <div class="table-title">{{ entry.item.title }}</div>
                     <div class="table-sub-row">
@@ -797,7 +797,7 @@ export default {
               </td>
               <td class="title-col">
                 <div class="table-item-cell">
-                  <img v-cover class="table-cover" :src="entry.item.logoURL" :alt="entry.item.name" loading="lazy" />
+                  <img v-cover="entry.item.logoURL" class="table-cover" :alt="entry.item.name" loading="lazy" />
                   <div style="min-width:0">
                     <div class="table-title">{{ entry.item.name }}</div>
                     <div class="table-sub-row">

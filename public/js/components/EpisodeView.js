@@ -260,14 +260,14 @@ export default {
       <template v-else-if="episode">
         <section class="hero-card">
           <div class="hero-main">
-            <img v-cover class="hero-cover" :src="episode.image" :alt="episode.title" />
+            <img v-cover="episode.image" class="hero-cover" :alt="episode.title" />
             <div class="hero-info">
               <div v-if="episode.podcast?.pid" class="ep-pod-row">
                 <router-link
                   :to="'/podcast/' + episode.podcast.pid"
                   class="podcast-link-pill"
                 >
-                  <img v-cover v-if="episode.podcast.image" :src="episode.podcast.image" :alt="episode.podcast.title" />
+                  <img v-cover="episode.podcast.image" v-if="episode.podcast.image" :alt="episode.podcast.title" />
                   <span>{{ episode.podcast.title }}</span>
                   <app-icon name="arrow-right" :size="13" />
                 </router-link>
@@ -370,7 +370,7 @@ export default {
           <div class="comment-list" v-else>
             <article v-for="c in comments" :key="c.id" class="comment-item">
               <div class="comment-head">
-                <img v-cover class="comment-avatar" :src="c.author.avatar" :alt="c.author.nickname" loading="lazy" />
+                <img v-cover="c.author.avatar" class="comment-avatar" :alt="c.author.nickname" loading="lazy" />
                 <div style="flex:1; min-width:0;">
                   <div class="comment-author">
                     <span>{{ c.author.nickname }}</span>

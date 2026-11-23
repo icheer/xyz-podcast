@@ -13,6 +13,7 @@ import {
   parseTextWithTimestamps,
   parseTimestampToSeconds,
   shouldIgnoreGlobalHotkey,
+  smallImageUrl,
 } from "../public/js/utils.js";
 import {
   MAX_PROGRESS_ENTRIES,
@@ -47,6 +48,23 @@ function createMemoryStorage() {
     },
   };
 }
+
+test("smallImageUrl applies one thumbnail suffix only to supported image hosts", () => {
+  const original = "https://image.xyzcdn.net/cover@2x.jpg";
+  assert.equal(smallImageUrl(original), original + "@small");
+  assert.equal(smallImageUrl(original + "@small"), original + "@small");
+  assert.equal(smallImageUrl(original + "@middle?x=1#cover"), original + "@small?x=1#cover");
+  assert.equal(smallImageUrl("//xyzrank.justinbot.com/cover.png%40thumbnail"),
+    "//xyzrank.justinbot.com/cover.png@small");
+  const otherImages = [
+    "https://is1-ssl.mzstatic.com/image/thumb/podcast/100x100bb.jpg",
+    "https://image.xyzcdn.net.example.org/cover.jpg",
+    "/icon.svg",
+    "data:image/png;base64,AAAA",
+  ];
+  for (const src of otherImages) assert.equal(smallImageUrl(src), src);
+  assert.equal(smallImageUrl(undefined), "");
+});
 
 test("utils formatting helpers produce expected strings", () => {
   assert.equal(formatDurationSeconds(65), "01:05");

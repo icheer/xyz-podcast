@@ -16,7 +16,7 @@ import {
   saveQueue,
   toggleFavoritePodcast,
 } from "./storage.js";
-import { formatDurationSeconds, shouldIgnoreGlobalHotkey } from "./utils.js";
+import { formatDurationSeconds, shouldIgnoreGlobalHotkey, smallImageUrl } from "./utils.js";
 import AppIcon from "./components/AppIcon.js";
 import AboutDialog from "./components/AboutDialog.js";
 import EpisodeView from "./components/EpisodeView.js";
@@ -1267,15 +1267,24 @@ app.directive("dialog-focus", {
   },
   unmounted(el) { el._dialogCleanup?.(); },
 });
+const COVER_PLACEHOLDER = "/icon.svg";
+function setCoverSource(el, value) {
+  const src = smallImageUrl(value);
+  el.classList.toggle("cover-fallback", !src);
+  el.src = src || COVER_PLACEHOLDER;
+}
+
 app.directive("cover", {
-  mounted(el) {
+  beforeMount(el, { value }) {
     el._coverError = () => {
-      if (el.getAttribute("src") !== "/icon.svg") { el.src = "/icon.svg"; el.classList.add("cover-fallback"); }
+      if (el.getAttribute("src") !== COVER_PLACEHOLDER) setCoverSource(el, "");
     };
     el.addEventListener("error", el._coverError);
-    if (!el.getAttribute("src") || (el.complete && !el.naturalWidth)) el._coverError();
+    setCoverSource(el, value);
   },
-  updated(el) { if (el.complete && !el.naturalWidth) el._coverError(); },
+  updated(el, { value, oldValue }) {
+    if (value !== oldValue) setCoverSource(el, value);
+  },
   unmounted(el) { el.removeEventListener("error", el._coverError); },
 });
 app.use(router);

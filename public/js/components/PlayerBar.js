@@ -117,7 +117,7 @@ export default {
 
         <div class="mini-player-inner">
           <button type="button" class="mini-track" @click="playerActions.setExpanded(true)" aria-label="展开播放器">
-            <img v-cover class="mini-cover" :src="track.image" :alt="track.title" />
+            <img v-cover="track.image" class="mini-cover" :alt="track.title" />
             <div class="mini-meta">
               <div class="mini-title">{{ track.title }}</div>
               <div class="mini-sub tabular">
@@ -208,7 +208,7 @@ export default {
           </div>
 
           <div class="full-cover-wrap">
-            <img v-cover class="full-cover" :src="track.image" :alt="track.title" />
+            <img v-cover="track.image" class="full-cover" :alt="track.title" />
           </div>
 
           <div class="full-titles">

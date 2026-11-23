@@ -314,7 +314,7 @@ export default {
             :key="pod.pid"
             class="queue-item"
           >
-            <img v-cover class="cover-thumb drawer-thumb" :src="pod.image" :alt="pod.title" loading="lazy" />
+            <img v-cover="pod.image" class="cover-thumb drawer-thumb" :alt="pod.title" loading="lazy" />
             <button type="button" class="queue-info" @click="openPodcast(pod.pid)">
               <div class="queue-title">{{ pod.title }}</div>
               <div class="queue-sub">
@@ -347,7 +347,7 @@ export default {
             class="queue-item"
             :class="{ active: item.eid === player.currentEid }"
           >
-            <img v-cover class="cover-thumb drawer-thumb" :src="item.image" :alt="item.title" loading="lazy" />
+            <img v-cover="item.image" class="cover-thumb drawer-thumb" :alt="item.title" loading="lazy" />
             <button type="button" class="queue-info" @click="openEpisode(item.eid)">
               <div class="queue-title">{{ item.title }}</div>
               <div class="queue-sub tabular">
