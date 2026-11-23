@@ -937,9 +937,11 @@ const AppRoot = {
       this.updateMediaSessionPosition();
     },
     flushProgressNow() {
-      if (this.player.currentEid && this.player.currentTime > 0) {
-        this.persistProgress(false, true);
-      }
+      if (!this.player.currentEid || this.player.currentTime <= 0) return;
+      // An episode that just ended is flushed again when playback moves on or the
+      // page is left: keep the "finished" mark instead of overwriting it.
+      const audio = this.$refs.audioEl;
+      this.persistProgress(Boolean(audio?.ended), true);
     },
     onAudioPlaying() {
       this.player.isPlaying = true;

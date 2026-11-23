@@ -343,6 +343,11 @@
   - 验证：新增 `test/boards.test.js` 与 `test/helpers/sqliteD1.js`（`node:sqlite` + 真实迁移），8 项通过，其中 3 项在改动前失败；`npm test` 36/36。本地 workerd 复测，响应的 `total` 与改前一致，读取行数：热门播客首页 8,277 → 86、第 6 页 8,677 → 486、新播客榜 218 → 86；搜索「AI」首次 9,671、同一筛选的第二页不再计数。
   - 遗留：按非排名列排序仍需全表扫描加排序，热门播客约 16,400 行/次（改前 24,578）。修复需要为排序列预计算名次并建索引，会增加每日写入，待决定方案。
 
+- [x] **FIX-01** 一集播完后，「已播完」标记不再被后续保存覆盖。
+  - 原因：`onAudioEnded` 存入 `finished: true` 后，连播切集调用的 `playTrack`、以及 `pagehide`/`beforeunload` 都会执行 `flushProgressNow()`，它固定以 `finished: false` 保存当前单集。结果是通过队列听完、或听完最后一集后关闭页面，单集都不显示「已播完」，「清已播」也清不掉。
+  - 修改：`flushProgressNow` 依据 `audio.ended` 决定 `finished`。中途手动切集的行为不变。
+  - 验证：新增 `test/player.test.js`（加载 `app.js` 中真实的 `methods`，配假 `<audio>` 和假 localStorage），修复前 2 项失败、修复后通过。本地 `wrangler dev` + Playwright 用 1.2 秒真实音频检查：Chromium、WebKit 各 12 项通过；换回未修复的 `app.js` 时连播后 `finished:false`、播放列表无「已播完」、`pagehide` 后标记丢失，3 项失败。
+
 ## 交接日志（Handover Log）
 
 | 日期 | 阶段/任务 | 完成/变更摘要 | 验证状态 | 遗留/下一步 |
@@ -416,3 +421,4 @@
 | 2026-11-23 | PERF-04 | 页面小宇宙图片统一使用 `@small` | CDN 下载体积及 Chromium、WebKit 请求验证通过，单测 26/26 | 本地验证 |
 | 2026-11-23 | UI-27 | 手动关注 PID 或小宇宙链接 | Chromium、WebKit 按钮流程及持久化验证通过，单测 28/28 | 随 main 推送至 Workers Builds |
 | 2026-11-23 | PERF-05 | 榜单接口去掉无筛选请求的 `COUNT(*)`，带筛选的计数按版本缓存 | 单测 36/36；本地 workerd 实测首页读取 8,277 → 86 行 | 排序查询的全表扫描待处理 |
+| 2026-11-23 | FIX-01 | 连播切集和关闭页面不再覆盖「已播完」标记 | 单测 38/38；Chromium、WebKit 真实音频检查各 12 项通过 | 本地验证，未部署 |
