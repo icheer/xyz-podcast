@@ -93,6 +93,9 @@ xyz-podcast/
 │       │   └── PlaylistDrawer.js # 播放列表抽屉（SortableJS 拖拽排序 + 下一首/清已播/移除撤销）
 │       └── app.js            # Vue 3 Options API 根实例、VueRouter 初始化、全局音频控制器
 └── test/                     # Node 内置 test runner (node --test) 单元测试
+    ├── helpers/
+    │   └── sqliteD1.js        # 基于 node:sqlite 的最小 D1 绑定，让测试对真实迁移和 SQL 运行
+    ├── boards.test.js         # 榜单接口：排序、搜索、分页、趋势及每次请求的 COUNT(*) 次数
     ├── frontend.test.js
     ├── parser.test.js
     ├── schema.test.js
@@ -180,7 +183,8 @@ xyz-podcast/
 - `episodes_rank` 使用 `WITHOUT ROWID` 联合主键 `(sync_version, board, eid)` 和排名索引 `(sync_version, board, rank)`。分类过滤在路径指定的小榜单内扫描。
 - `podcasts_rank` 使用 `WITHOUT ROWID` 联合主键 `(sync_version, board, raw_id)`，配排名索引 `(sync_version, board, rank)` 和分类索引 `(sync_version, board, primary_genre)`。
 - `0002_rank_composite_keys.sql` 在迁移中复制已有榜单数据并换表，保留各版本和对应的趋势基线。升级已有库前按快照体量预留一次性写入额度，部署窗口参见 README。
-- `board_meta`: `(sync_version, board, total, synced_count, median_values_json, updated_at, PRIMARY KEY (sync_version, board))`。
+- `board_meta`: `(sync_version, board, total, synced_count, median_values_json, updated_at, PRIMARY KEY (sync_version, board))`。已发布版本的 `total` 同时作为无筛选榜单请求返回的总数。
+- **读取额度**：Free Plan 每天读 500 万行，超出后 D1 报错到次日 08:00（北京时间）。`COUNT(*)` 与非排名列排序都会扫完整个榜单分区（热门播客约 8,200 行/次），新增查询前先用 `test/helpers/sqliteD1.js` 或本地 `meta.rows_read` 估算读取量。
 - `sync_runs`: `(run_id PK, slot, status, current_board, current_offset, pages_fetched, items_written, retry_count, last_error, locked_until, started_at, finished_at)`。
 - `app_state`: `(key PK, value, updated_at)`。
 
@@ -192,7 +196,7 @@ xyz-podcast/
 |---|---|---|
 | `GET /api/health` | 无 | 健康检查与 D1 连通性检测 |
 | `GET /api/boards/meta` | 无 | 返回当前 `active_sync_version` 及 4 榜单总数、更新时间、分类列表 |
-| `GET /api/boards/:board` | 无 | 分页查询榜单；参数 `offset` (0), `limit` (<=100), `q`, `genre`, `sort` (白名单映射 SQL 列), `dir` (`asc`\|`desc`) |
+| `GET /api/boards/:board` | 无 | 分页查询榜单；参数 `offset` (0), `limit` (<=100), `q`, `genre`, `sort` (白名单映射 SQL 列), `dir` (`asc`\|`desc`)。`total` 始终为数字：已发布版本的无筛选请求取 `board_meta.total`，带 `q`/`genre` 时执行一次 `COUNT(*)` 并按版本缓存在 isolate 内存；冷启动的未发布版本每次都计数 |
 | `GET /api/xiaoyuzhou/podcast/:pid` | 无 | 实时抓小宇宙播客页并解析返回 `{ podcast, episodes, limited: true, sourceUrl }` |
 | `GET /api/xiaoyuzhou/episode/:eid` | 无 | 实时抓小宇宙单集页并解析返回 `{ episode, comments, limited: true, sourceUrl }` |
 | `POST /api/admin/sync` | `X-Admin-Key` | 手动触发同步（支持 `{ reset?: boolean, batches?: number }`，冷启动/调试用） |
@@ -301,6 +305,7 @@ npm run deploy               # npx wrangler deploy
 ## 9. 当前进度与交接快照
 
 - **最后更新**：2026-11-23
+- **榜单读取额度**：`PERF-05` 去掉已发布版本无筛选请求的 `COUNT(*)`，改读同一请求里已有的 `board_meta.total`；带筛选的计数按版本缓存在 isolate 内存。响应格式不变。本地 workerd 实测热门播客首页 8,277 → 86 行、第 6 页 8,677 → 486 行、热门单集首页 918 → 126 行；非排名列排序仍需全表扫描（热门播客约 16,400 行/次），待后续处理。新增 `test/boards.test.js` 对真实 SQLite 验证 8 项，`npm test` 36/36。
 - **手动关注播客**：`UI-27` 在「关注播客」Tab 增加手动添加入口，接受 PID 和频道链接，验证后按 PID 去重保存。Chromium、WebKit 验证原生输入框、有效及无效输入、重复添加和刷新恢复，单测 28/28。
 - **小宇宙图片缩略图**：`PERF-04` 在浏览器设置封面、头像及简介插图的 `src` 前转换到 `@small`，覆盖已有本地收藏、历史及队列。真实 CDN 样本及 Chromium、WebKit 请求验证通过，单测 26/26。
 - **单集播放与入队顺序**：`UI-26` 在榜单、频道和单集页立即播放另一集时移到队首，单集入队时插在当前单集之后。Chromium 实测卡片和表格、频道和单集页的操作，以及重复入队、空队列、调序、顺序续播及刷新恢复。单测 25/25。
@@ -346,4 +351,4 @@ npm run deploy               # npx wrangler deploy
 - **最新 P3 样式与代码架构整理（2026-11-18）**：`REFACTOR-P3` 已完成落盘：
   - **`public/css/app.css` 单源化级联重构**：彻底消除多轮迭代追加在尾部的 ~80 处重复选择器覆盖与 5 处分散 `@media (min-width: 768px)`，按职责重组为 11 个单源章节（Design Tokens、Reset & Primitives、Header、About Dialog、Board Toolbar & Skeletons、Mobile Rank Cards、Desktop Rank Table、Detail Pages/Shownotes/Comments、Mini & Full Player、Drawers/Toast/Transitions、Consolidated Breakpoints），100% 保持已验收的视觉表现与优先级。
   - **跨组件去重、队列背景进度条、原地二次确认与 Android PWA 导航栏修复**：`PlaylistDrawer` 移除易被长播客名截断的行内橙色 `已听 n%` 文本，改用基于 `--listen-pct` 的条目左→右柔和背景色填充；`utils.js` 新增 `inlineConfirmMixin` 为播放列表「清空」与收听历史「清空历史」提供无弹窗的**红色原地二次确认**（首次点击变红为「确认清空」并保持 3.5 秒，再次点击执行且仍保留底部 5 秒撤销，点击面板其余位置/切 Tab/按 Esc 自动解除），抽离 `computeProgressPercent` 与 `formatProgressBadge` 统一四处收听进度逻辑；`api.js` 为前端内存详情缓存增加 `MAX_DETAIL_CACHE = 60` FIFO 淘汰上限；`site.webmanifest` 移除写死的品牌橙 `"theme_color": "#e04f26"`（并将 `background_color` 对齐 `#f7f4ec`），交由 `index.html` 的浅/深双 `prefers-color-scheme` `<meta name="theme-color">` 与运行时脚本控制状态栏，避免 Android Chrome WebAPK（如 Pixel 4 XL 三键导航栏）将底部虚拟导航栏静态染成刺眼橙色。资源版本升至 `app.css?v=33`、`app.js?v=35`，`sw.js` 升至 `v8`。
-- **当前仓库状态**：`npm test` **24/24** 全部通过；仓库已关联 Cloudflare Workers Builds，推送到 `origin/main` 后自动构建部署上线（`https://xyz.keyi.ma`）。
+- **当前仓库状态**：`npm test` **36/36** 全部通过；仓库已关联 Cloudflare Workers Builds，推送到 `origin/main` 后自动构建部署上线（`https://xyz.keyi.ma`）。

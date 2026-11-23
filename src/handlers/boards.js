@@ -43,6 +43,27 @@ function escapeLikePattern(str) {
   return str.replace(/[\\%_]/g, "\\$&");
 }
 
+// Totals of filtered queries, kept per isolate for the active sync version.
+// COUNT(*) scans every row of the board, and the rows of an active version
+// never change, so one count per filter serves all of its pages and sorts.
+const FILTERED_TOTAL_CACHE_MAX = 300;
+let filteredTotals = { syncVersion: null, totals: new Map() };
+
+function readFilteredTotal(syncVersion, cacheKey) {
+  if (filteredTotals.syncVersion !== syncVersion) return null;
+  return filteredTotals.totals.get(cacheKey) ?? null;
+}
+
+function rememberFilteredTotal(syncVersion, cacheKey, total) {
+  if (filteredTotals.syncVersion !== syncVersion) {
+    filteredTotals = { syncVersion, totals: new Map() };
+  }
+  if (filteredTotals.totals.size >= FILTERED_TOTAL_CACHE_MAX) {
+    filteredTotals.totals.delete(filteredTotals.totals.keys().next().value);
+  }
+  filteredTotals.totals.set(cacheKey, total);
+}
+
 function getEdgeCache() {
   return typeof caches !== "undefined" && caches?.default ? caches.default : null;
 }
@@ -279,6 +300,14 @@ export async function handleBoardQuery(board, url, env, request = null, ctx = nu
   }
 
   const whereSql = where.join(" AND ");
+  const isFiltered = where.length > 2;
+
+  // An active version is fully synced, so the unfiltered total is already stored
+  // in board_meta: counting the board again would read every row on each request.
+  const useBoardMetaTotal = isActiveVersion && !isFiltered;
+  const cacheKey = `${whereSql}|${JSON.stringify(baseParams)}`;
+  const cachedTotal = isActiveVersion && isFiltered ? readFilteredTotal(syncVersion, cacheKey) : null;
+  const needsCount = cachedTotal === null && !useBoardMetaTotal;
   const limitIdx = idx;
   const offsetIdx = idx + 1;
   const prevVerIdx = idx + 2;
@@ -318,7 +347,7 @@ export async function handleBoardQuery(board, url, env, request = null, ctx = nu
        ORDER BY page.${sortCol} ${sortDir}, page.rank ASC`;
 
   const [metaRow, prevMetaRow, countRow, itemsRes] = await Promise.all([
-    env.DB.prepare("SELECT median_values_json, updated_at FROM board_meta WHERE sync_version = ?1 AND board = ?2")
+    env.DB.prepare("SELECT median_values_json, total, updated_at FROM board_meta WHERE sync_version = ?1 AND board = ?2")
       .bind(syncVersion, board)
       .first(),
     prevVersion
@@ -326,9 +355,24 @@ export async function handleBoardQuery(board, url, env, request = null, ctx = nu
           .bind(prevVersion, board)
           .first()
       : Promise.resolve(null),
-    env.DB.prepare(countSql).bind(...baseParams).first(),
+    needsCount ? env.DB.prepare(countSql).bind(...baseParams).first() : Promise.resolve(null),
     env.DB.prepare(dataSql).bind(...baseParams, limit, offset, prevVersion || "").all(),
   ]);
+
+  let total = cachedTotal;
+  if (total === null && useBoardMetaTotal) {
+    const stored = Number(metaRow?.total);
+    total = Number.isInteger(stored) && stored >= 0 ? stored : null;
+  }
+  if (total === null) {
+    // Partial data during a cold start, or a board_meta row without a usable total.
+    total = Number(
+      (needsCount ? countRow : await env.DB.prepare(countSql).bind(...baseParams).first())?.total
+    ) || 0;
+  }
+  if (isActiveVersion && isFiltered) {
+    rememberFilteredTotal(syncVersion, cacheKey, total);
+  }
 
   const hasPrevBaseline = Boolean(prevMetaRow?.ok);
   const rows = itemsRes?.results || [];
@@ -342,7 +386,7 @@ export async function handleBoardQuery(board, url, env, request = null, ctx = nu
       syncVersion,
       prevSyncVersion: hasPrevBaseline ? prevVersion : null,
       updatedAt: metaRow?.updated_at || null,
-      total: Number(countRow?.total) || 0,
+      total,
       offset,
       limit,
       sort: resolvedSortKey,
