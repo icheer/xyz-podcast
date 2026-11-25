@@ -835,11 +835,11 @@ img {
 }
 
 .rank-trend.is-up {
-  color: var(--success);
+  color: var(--danger);
 }
 
 .rank-trend.is-down {
-  color: var(--text-muted);
+  color: var(--success);
 }
 
 .rank-trend.is-new {

@@ -235,6 +235,7 @@ xyz-podcast/
    - **虚拟滚动 (`RankBoard.js` + `computeVirtualWindow`)**：移动端 `.rank-cards` 与 PC 端 `.rank-table` `<tbody>` 均仅渲染可视窗口及前后缓冲区条目，动态测量并缓存实测行高，通过上下 spacer 保持总文档高度，避免长列表 DOM 膨胀。
    - **移动端 (`< 768px`)**：卡片流布局（排名与升降/新上榜标识、正方形封面、主标题、可点击进频道的播客名/主播、分类与已听进度标签；单集卡片附「▶ 播放」「+ 队列」按钮）。
    - **PC 端 (`>= 768px`)**：自适应高信息密度表格（支持列头排序、中位数提示、排名趋势、单集直跳频道与已听进度），保留快捷播放/入队与进内页交互。
+   - 四个榜单的排名趋势在浅色和深色主题中均使用红色 `↑` 表示上升、绿色 `↓` 表示下降。
    - 四榜Tab点击及横滑均使用router.replace，共用当前历史位置，不累积后退步骤；进入详情使用push，返回恢复最后榜单及其滚动位置（外链冷启动直达内页时返回自动回退至 `/` 热榜首页，且详情页顶栏常驻「热榜」入口，未匹配路径走 404 兜底页）。手机列表支持左右滑动切换相邻榜单Tab（左滑下一个，右滑上一个，首尾不循环）；仅<768px启用，排除控件、屏幕24px边缘、弹层、多指及取消手势，纵向起手不切换；方向锁12px、横移64px且大于纵移1.5倍、700ms内完成，横滑后抑制误点击。
    - 触底 `IntersectionObserver` 自动加载下一页（或手动"加载更多"兜底）。
    - **数据未更新提示**：当前版本的最后更新时间超过 25 小时（`public/js/freshness.js` 的 `isBoardDataStale`，与 `/api/health` 共用）时，四个榜单顶部显示「榜单数据还停留在 M 月 D 日 HH:mm，今天的同步还没有完成，系统会自动重试。」，桌面端顶栏的更新时间变为警示色。根组件每 5 分钟核对一次，页面一直开着也会出现；数据正常时不显示任何内容。
@@ -331,7 +332,8 @@ npm run deploy               # npx wrangler deploy
 
 ## 9. 当前进度与交接快照
 
-- **最后更新**：2026-11-23
+- **最后更新**：2026-11-25
+- **榜单排名趋势颜色**：`UI-28` 上升用红色，下降用绿色。Chromium、WebKit 验证四榜在 390px 和 1280px 下的浅色和深色主题，`npm run check` 通过，单测 81/81。样式版本 `app.css?v=37`，Service Worker 缓存版本 `v20`。
 - **榜单封面回退**：`FIX-03` 合并重复的 `@small` 后缀。用户示例的单后缀代理地址返回 404，编码路径中的 HTTPS 原图返回 200。Chromium、WebKit 验证缩略图优先及原图和占位图回退，`npm run check` 通过，单测 53/53。
 - **部署前门禁**：`CI-01` 新增 ESLint 10（`npm run lint`）、模块冒烟测试 `test/smoke.test.js`（逐个模块 `node --check`、按 `import` 语句核对导出、用与页面同版本的 `@vue/compiler-dom` 编译全部模板）、GitHub Actions 工作流，以及 `predeploy` 钩子（`npm run deploy` 前自动执行 `npm run check`，不通过则不发布）。推荐规则报出的 3 处重新抛错已保留 `cause`，兜底流程由 `test/api.test.js` 覆盖。`npm run check` 在 Node 24 与 Node 26 下通过，`npm test` 51/51。资源版本 `app.js?v=43`、`sw.js v17`。
 - **已播完标记**：`FIX-01` 修复连播切集、关闭页面时把刚播完的单集覆盖成未播完的问题（`flushProgressNow` 改为依据 `audio.ended` 保留 `finished`）。`test/player.test.js` 驱动根组件真实方法，Chromium、WebKit 各 12 项真实音频播放检查通过（未修复时失败）。
