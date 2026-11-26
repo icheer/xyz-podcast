@@ -1,5 +1,6 @@
-// Overlay entries use Vue Router so its history positions stay consistent.
+// Page and overlay entries share Vue Router's history positions.
 export function createOverlayHistory(router, onChange, onError) {
+  const history = router.options.history;
   const key = "xyzOverlayStack";
   const read = () => {
     const value = window.history.state?.[key];
@@ -7,6 +8,23 @@ export function createOverlayHistory(router, onChange, onError) {
       ? [...new Set(value.filter(name => ["player", "queue", "library", "about"].includes(name)))]
       : [];
   };
+
+  function homePosition() {
+    const { position, back, xyzHomePosition } = history.state;
+    const pagePosition = position - read().length;
+    if (router.currentRoute.value.meta.board) return pagePosition;
+    if (Number.isInteger(xyzHomePosition) && xyzHomePosition >= 0 && xyzHomePosition <= pagePosition) {
+      return xyzHomePosition;
+    }
+    // An entry created before the upgrade may still have a board one step back.
+    return back && router.resolve(back).meta.board ? position - 1 : pagePosition;
+  }
+
+  // Persist the board (or shared landing page) on each new entry so reloads
+  // and Forward navigation can return to the same starting point.
+  const push = history.push;
+  history.push = (path, state) => push(path, { ...state, xyzHomePosition: homePosition() });
+
   let updating = false;
   let pending = Promise.resolve();
   const sync = () => onChange(read());
@@ -67,6 +85,18 @@ export function createOverlayHistory(router, onChange, onError) {
         await router.push(path);
       });
     },
-    destroy: unsubscribe,
+    returnHome() {
+      return enqueue(async () => {
+        if (router.currentRoute.value.meta.board) return;
+        const steps = history.state.position - homePosition();
+        if (steps > 0 && !await back(steps)) return;
+        // A shared detail link occupies the first app entry. Reuse it for home.
+        if (!router.currentRoute.value.meta.board) await router.replace("/");
+      });
+    },
+    destroy() {
+      unsubscribe();
+      history.push = push;
+    },
   };
 }

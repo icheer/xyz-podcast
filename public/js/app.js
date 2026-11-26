@@ -272,8 +272,11 @@ const AppRoot = {
       if (typeof backPath === "string" && backPath.length > 0) {
         this.$router.back();
       } else {
-        this.$router.push("/");
+        this.$router.replace("/");
       }
+    },
+    onBrandClick() {
+      return this.isBoardRoute ? this.setAboutOpen(true) : this._overlayHistory.returnHome();
     },
     setAboutOpen(open) {
       if (!open) this.aboutOpen = false;
@@ -1127,7 +1130,7 @@ const AppRoot = {
               :aria-label="isBoardRoute ? '关于小宇宙播客热榜' : '返回热榜首页'"
               :aria-haspopup="isBoardRoute ? 'dialog' : null"
               :aria-expanded="isBoardRoute ? aboutOpen : null"
-              @click="isBoardRoute ? setAboutOpen(true) : $router.push('/')"
+              @click="onBrandClick"
             >
               <div class="brand-mark">
                 <app-icon name="headphones" :size="18" />
