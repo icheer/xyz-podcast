@@ -1252,6 +1252,8 @@ const AppRoot = {
               <component
                 :is="Component"
                 :key="route.meta && route.meta.board ? 'board-' + route.meta.board : (route.name === 'PodcastView' ? 'podcast-' + route.params.pid : route.fullPath)"
+                :board-key="route.meta.board"
+                :column-type="route.meta.columnType"
                 :search-query="searchQuery"
                 :board-meta="boardMeta"
                 :data-stale="boardDataStale"

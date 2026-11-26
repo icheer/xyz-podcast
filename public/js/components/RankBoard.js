@@ -42,6 +42,8 @@ export default {
   mixins: [scrollKeeperMixin],
   inject: ["player", "playerActions"],
   props: {
+    boardKey: { type: String, required: true },
+    columnType: { type: String, required: true },
     searchQuery: { type: String, default: "" },
     boardMeta: { type: Object, default: () => ({}) },
     refreshVersion: { type: Number, default: 0 },
@@ -84,11 +86,8 @@ export default {
     };
   },
   computed: {
-    boardKey() {
-      return this.$route.meta.board || "episodes";
-    },
     isEpisodeBoard() {
-      return this.$route.meta.columnType === "episode";
+      return this.columnType === "episode";
     },
     sortOptions() {
       return this.isEpisodeBoard ? EPISODE_SORTS : PODCAST_SORTS;

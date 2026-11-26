@@ -268,6 +268,63 @@ test("reloading a board requests page one and ignores an older pagination respon
   assert.equal(board.loading, false);
 });
 
+test("requests stay with their cached board when the current route switches", async (t) => {
+  const pending = [];
+  t.mock.method(globalThis, "fetch", (url) => new Promise((resolve) => {
+    pending.push({
+      url,
+      reply: (item) => resolve(Response.json({ items: [item], total: 80 })),
+    });
+  }));
+
+  const route = { meta: { board: "episodes", columnType: "episode" } };
+  function makeBoard(boardKey, columnType) {
+    const board = {
+      ...RankBoard.data(),
+      ...RankBoard.methods,
+      boardKey,
+      columnType,
+      searchQuery: "",
+      $route: route,
+      $nextTick() {},
+    };
+    for (const [name, compute] of Object.entries(RankBoard.computed)) {
+      Object.defineProperty(board, name, { get: compute.bind(board) });
+    }
+    return board;
+  }
+
+  const episodes = makeBoard("episodes", "episode");
+  const slowEpisodePage = episodes.fetchNextPage();
+  route.meta = { board: "podcasts", columnType: "podcast" };
+  const podcasts = makeBoard("podcasts", "podcast");
+  const podcastPage = podcasts.fetchNextPage();
+
+  const podcast = { id: "podcast" };
+  const firstEpisode = { eid: "first" };
+  pending[1].reply(podcast);
+  await podcastPage;
+  pending[0].reply(firstEpisode);
+  await slowEpisodePage;
+  assert.deepEqual(episodes.items, [firstEpisode]);
+  assert.deepEqual(podcasts.items, [podcast]);
+
+  // A callback from the old instance runs after the global route has changed.
+  const nextEpisodePage = episodes.fetchNextPage();
+  const secondEpisode = { eid: "second" };
+  pending[2].reply(secondEpisode);
+  await nextEpisodePage;
+  assert.deepEqual(pending.map(({ url }) => url), [
+    "/api/boards/episodes?offset=0&limit=40&sort=rank&dir=asc",
+    "/api/boards/podcasts?offset=0&limit=40&sort=rank&dir=asc",
+    "/api/boards/episodes?offset=1&limit=40&sort=rank&dir=asc",
+  ]);
+  assert.equal(episodes.isEpisodeBoard, true);
+  assert.equal(podcasts.isEpisodeBoard, false);
+  assert.deepEqual(episodes.items, [firstEpisode, secondEpisode]);
+  assert.deepEqual(podcasts.items, [podcast]);
+});
+
 test("computeVirtualWindow slices large lists cleanly with custom height caches", () => {
   assert.deepEqual(computeVirtualWindow({ count: 0, scrollRelTop: 100, viewportHeight: 800 }), {
     startIndex: 0,
