@@ -2696,6 +2696,12 @@ button.queue-info {
 }
 
 @media (max-width: 767px) {
+  .board-toolbar:has(> .board-summary) {
+    --board-summary-gap: 9px;
+    row-gap: var(--board-summary-gap);
+    margin-bottom: var(--board-summary-gap);
+  }
+
   .search-wrap:not(.search-open) {
     display: none;
   }

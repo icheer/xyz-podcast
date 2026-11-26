@@ -334,6 +334,7 @@ npm run deploy               # npx wrangler deploy
 ## 9. 当前进度与交接快照
 
 - **最后更新**：2026-11-26
+- **移动榜单条数间距**：`UI-31`「共 xx 条」与筛选栏和首张卡片都留 9px。Chromium、WebKit 验证四榜在 320px、390px、767px 的间距和 1280px 的桌面布局。`npm run check` 通过，单测 81/81。
 - **移动榜单时长图标**：`UI-30` 在单集卡片第三项统计前新增 11px 的 `clock-4`。Chromium、WebKit 验证两张单集榜在 320px 和 390px 的浅深色布局。`npm run check` 通过，单测 81/81。
 - **移动榜单卡片**：`UI-29` 基于线上榜单视觉检查统一统计行，调整排名栏、封面和内边距，并改善深色卡片的区分度。Chromium、WebKit 用线上样本验证四榜在 320–767px 的浅深色样式及队列、关注、导航，1280px 桌面表格对照通过。`npm run check` 通过，单测 81/81。
 - **榜单排名趋势颜色**：`UI-28` 上升用红色，下降用绿色。Chromium、WebKit 验证四榜在 390px 和 1280px 下的浅色和深色主题，`npm run check` 通过，单测 81/81。样式版本 `app.css?v=37`，Service Worker 缓存版本 `v20`。
