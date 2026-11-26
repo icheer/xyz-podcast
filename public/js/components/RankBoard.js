@@ -591,14 +591,14 @@ export default {
 
           <div class="card-footer-row">
             <div class="card-stats-line tabular" v-if="isEpisodeBoard">
-              <span class="stat-strong">▶ {{ formatCount(entry.item.playCount) }}</span>
-              <span>💬 {{ formatCount(entry.item.commentCount) }}</span>
+              <span title="播放量"><app-icon name="play" :size="11" />{{ formatCount(entry.item.playCount) }}</span>
+              <span title="评论量"><app-icon name="message-circle" :size="11" />{{ formatCount(entry.item.commentCount) }}</span>
               <span>{{ formatMinutes(entry.item.duration) }}</span>
               <span>{{ formatRelativeDays(entry.item.lastReleaseDateDayCount) }}</span>
             </div>
 
             <div class="card-stats-line tabular" v-else>
-              <span class="stat-strong">均播 {{ formatCount(entry.item.avgPlayCount) }}</span>
+              <span>均播 {{ formatCount(entry.item.avgPlayCount) }}</span>
               <span>每{{ formatUpdateDays(entry.item.avgUpdateFreq) }}更新</span>
               <span>{{ entry.item.trackCount }} 集</span>
             </div>
