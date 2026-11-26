@@ -258,17 +258,18 @@ export default {
       </div>
 
       <template v-else-if="episode">
-        <section class="hero-card">
+        <section class="hero-card episode-hero">
           <div class="hero-main">
             <img v-cover="episode.image" class="hero-cover" :alt="episode.title" />
             <div class="hero-info">
               <div v-if="episode.podcast?.pid" class="ep-pod-row">
                 <router-link
                   :to="'/podcast/' + episode.podcast.pid"
+                  :title="episode.podcast.title"
                   class="podcast-link-pill"
                 >
-                  <img v-cover="episode.podcast.image" v-if="episode.podcast.image" :alt="episode.podcast.title" />
-                  <span>{{ episode.podcast.title }}</span>
+                  <img v-cover="episode.podcast.image" v-if="episode.podcast.image" alt="" />
+                  <span class="podcast-link-name">{{ episode.podcast.title }}</span>
                   <app-icon name="arrow-right" :size="13" />
                 </router-link>
                 <button
@@ -284,19 +285,15 @@ export default {
               </div>
 
               <h1 class="hero-title">{{ episode.title }}</h1>
-
-              <div class="hero-meta episode-meta tabular">
-                <div class="episode-meta-group">
-                  <span title="时长"><app-icon name="clock-4" :size="12" />{{ formatDurationSeconds(episode.duration) }}</span>
-                  <time v-if="episode.pubDate" :datetime="episode.pubDate" title="发布日期"><app-icon name="calendar-days" :size="12" />{{ formatDateTime(episode.pubDate) }}</time>
-                </div>
-                <div class="episode-meta-group">
-                  <span title="播放量"><app-icon name="play" :size="12" />{{ formatCount(episode.playCount) }}</span>
-                  <span title="鼓掌数"><app-icon name="thumbs-up" :size="12" />{{ formatCount(episode.clapCount) }}</span>
-                  <span title="评论数"><app-icon name="message-circle" :size="12" />{{ formatCount(episode.commentCount) }}</span>
-                </div>
-              </div>
             </div>
+          </div>
+
+          <div class="episode-meta tabular">
+            <span title="时长"><app-icon name="clock-4" :size="12" />{{ formatDurationSeconds(episode.duration) }}</span>
+            <time v-if="episode.pubDate" :datetime="episode.pubDate" title="发布日期"><app-icon name="calendar-days" :size="12" />{{ formatDateTime(episode.pubDate) }}</time>
+            <span title="播放量"><app-icon name="play" :size="12" />{{ formatCount(episode.playCount) }}</span>
+            <span title="鼓掌数"><app-icon name="thumbs-up" :size="12" />{{ formatCount(episode.clapCount) }}</span>
+            <span title="评论数"><app-icon name="message-circle" :size="12" />{{ formatCount(episode.commentCount) }}</span>
           </div>
 
           <div class="hero-actions">

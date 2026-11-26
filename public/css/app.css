@@ -1296,59 +1296,65 @@ img {
   margin-bottom: 8px;
 }
 
-.episode-meta {
-  gap: 4px 18px;
+.episode-hero .hero-title {
   margin-bottom: 0;
+}
+
+.episode-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
   color: var(--text-muted);
   font-size: 12px;
   font-weight: 400;
 }
 
-.episode-meta-group {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  min-width: 0;
-  gap: 4px 6px;
-}
-
-.episode-meta-group > * {
+.episode-meta > * {
   display: inline-flex;
   align-items: center;
   gap: 3px;
   white-space: nowrap;
 }
 
+.episode-meta .app-icon svg {
+  width: 1em;
+  height: 1em;
+}
+
 .ep-pod-row {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
+  gap: 6px;
   margin-bottom: 8px;
 }
 
 .podcast-link-pill {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 4px 10px 4px 4px;
+  gap: 4px;
+  padding: 4px 6px 4px 4px;
   border-radius: 999px;
   background: var(--surface-soft);
   font-size: 12.5px;
   font-weight: 500;
   color: var(--text);
-  max-width: 100%;
+  min-width: 0;
+  max-width: 24rem;
 }
 
-.podcast-link-pill span {
+.podcast-link-name {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .podcast-link-pill img {
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   border-radius: 50%;
   object-fit: cover;
   flex-shrink: 0;
@@ -1359,6 +1365,10 @@ img {
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 20px;
+}
+
+.episode-hero .hero-actions {
+  margin-top: 14px;
 }
 
 .hero-actions .btn {
@@ -2638,6 +2648,16 @@ button.queue-info {
     grid-row: 1 / 4;
   }
 
+  .episode-hero .hero-cover {
+    grid-row: 1 / 3;
+  }
+
+  .episode-meta {
+    grid-column: 1 / -1;
+    grid-row: 3;
+    margin-top: 0;
+  }
+
   .hero-card .hero-info,
   .hero-card .hero-actions,
   .hero-description {
@@ -2768,6 +2788,11 @@ button.queue-info {
   .card-pill-actions .card-enter-hint {
     display: none;
   }
+
+  .episode-meta {
+    column-gap: 6px;
+    font-size: 11.5px;
+  }
 }
 
 @media (max-width: 359px) {
@@ -2783,6 +2808,19 @@ button.queue-info {
   .episode-stats {
     gap: 3px;
     font-size: 10.5px;
+  }
+
+  .episode-meta {
+    column-gap: 5px;
+    font-size: 11px;
+  }
+
+  .episode-meta > * {
+    gap: 2px;
+  }
+
+  .episode-meta time .app-icon {
+    display: none;
   }
 }
 
