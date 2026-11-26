@@ -1022,6 +1022,10 @@ img {
   white-space: nowrap;
 }
 
+.rank-episode-stats {
+  column-gap: clamp(7px, (100% - 156px) / 3, 10px);
+}
+
 .card-pill-actions {
   display: flex;
   align-items: center;
@@ -2771,6 +2775,10 @@ button.queue-info {
   .about-shortcuts {
     display: none;
   }
+
+  .episode-stats {
+    column-gap: clamp(10px, (100% - 196px) / 3, 14px);
+  }
 }
 
 @media (max-width: 400px) {
@@ -2807,7 +2815,7 @@ button.queue-info {
   }
 
   .episode-stats {
-    gap: 3px;
+    gap: 3px clamp(3px, (100% - 186px) / 3, 5px);
     font-size: 10.5px;
   }
 
