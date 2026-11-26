@@ -285,12 +285,16 @@ export default {
 
               <h1 class="hero-title">{{ episode.title }}</h1>
 
-              <div class="hero-meta tabular">
-                <span><app-icon name="clock" :size="13" /> {{ formatDurationSeconds(episode.duration) }}</span>
-                <span>{{ formatDateTime(episode.pubDate) }}</span>
-                <span>▶ {{ formatCount(episode.playCount) }}</span>
-                <span>👏 {{ formatCount(episode.clapCount) }}</span>
-                <span>💬 {{ formatCount(episode.commentCount) }}</span>
+              <div class="hero-meta episode-meta tabular">
+                <div class="episode-meta-group">
+                  <span title="时长"><app-icon name="clock-4" :size="12" />{{ formatDurationSeconds(episode.duration) }}</span>
+                  <time v-if="episode.pubDate" :datetime="episode.pubDate" title="发布日期"><app-icon name="calendar-days" :size="12" />{{ formatDateTime(episode.pubDate) }}</time>
+                </div>
+                <div class="episode-meta-group">
+                  <span title="播放量"><app-icon name="play" :size="12" />{{ formatCount(episode.playCount) }}</span>
+                  <span title="鼓掌数"><app-icon name="thumbs-up" :size="12" />{{ formatCount(episode.clapCount) }}</span>
+                  <span title="评论数"><app-icon name="message-circle" :size="12" />{{ formatCount(episode.commentCount) }}</span>
+                </div>
               </div>
             </div>
           </div>

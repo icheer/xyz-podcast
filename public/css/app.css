@@ -1296,6 +1296,29 @@ img {
   margin-bottom: 8px;
 }
 
+.episode-meta {
+  gap: 4px 18px;
+  margin-bottom: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.episode-meta-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  min-width: 0;
+  gap: 4px 6px;
+}
+
+.episode-meta-group > * {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  white-space: nowrap;
+}
+
 .ep-pod-row {
   display: flex;
   align-items: center;
