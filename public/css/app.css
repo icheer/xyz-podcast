@@ -2776,7 +2776,7 @@ button.queue-info {
   }
 
   .episode-stats {
-    column-gap: clamp(10px, (100% - 196px) / 3, 14px);
+    column-gap: clamp(10px, (100% - 196px) / 3, 12px);
   }
 }
 
