@@ -593,7 +593,7 @@ export default {
             <div class="card-stats-line tabular" v-if="isEpisodeBoard">
               <span title="播放量"><app-icon name="play" :size="11" />{{ formatCount(entry.item.playCount) }}</span>
               <span title="评论量"><app-icon name="message-circle" :size="11" />{{ formatCount(entry.item.commentCount) }}</span>
-              <span>{{ formatMinutes(entry.item.duration) }}</span>
+              <span title="时长"><app-icon name="clock-4" :size="11" />{{ formatMinutes(entry.item.duration) }}</span>
               <span>{{ formatRelativeDays(entry.item.lastReleaseDateDayCount) }}</span>
             </div>
 
