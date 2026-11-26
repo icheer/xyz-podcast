@@ -265,10 +265,10 @@ export default {
 
               <div class="ep-row-footer">
                 <div class="card-stats-line episode-stats tabular">
-                  <span>{{ formatDateTime(ep.pubDate) }}</span>
-                  <span class="stat-strong">{{ formatDurationSeconds(ep.duration) }}</span>
-                  <span>▶ {{ formatCount(ep.playCount) }}</span>
-                  <span>💬 {{ formatCount(ep.commentCount) }}</span>
+                  <span v-if="ep.pubDate" title="发布日期"><app-icon name="calendar-days" :size="11" />{{ formatDateTime(ep.pubDate) }}</span>
+                  <span title="时长"><app-icon name="clock-4" :size="11" />{{ formatDurationSeconds(ep.duration) }}</span>
+                  <span title="播放量"><app-icon name="play" :size="11" />{{ formatCount(ep.playCount) }}</span>
+                  <span title="评论量"><app-icon name="message-circle" :size="11" />{{ formatCount(ep.commentCount) }}</span>
                 </div>
 
                 <span

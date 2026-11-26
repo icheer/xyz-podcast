@@ -1502,7 +1502,6 @@ img {
 
 .episode-stats {
   grid-column: 1 / -1;
-  flex-wrap: nowrap;
   gap: 10px;
   margin: 0;
 }
