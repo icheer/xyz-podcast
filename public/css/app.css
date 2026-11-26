@@ -403,9 +403,11 @@ img {
   transition: background-color 160ms, color 160ms, border-color 160ms, transform 140ms;
 }
 
-.board-tab:hover {
-  color: var(--text);
-  background: var(--border);
+@media (hover: hover) and (pointer: fine) and (not (any-pointer: coarse)) {
+  .board-tab:hover {
+    color: var(--text);
+    background: var(--border);
+  }
 }
 
 .board-tab.active {
