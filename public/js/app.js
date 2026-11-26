@@ -1121,7 +1121,14 @@ const AppRoot = {
       <header class="site-header" ref="siteHeader">
         <div class="container">
           <div class="header-top">
-            <button type="button" class="brand" aria-label="关于小宇宙播客热榜" aria-haspopup="dialog" :aria-expanded="aboutOpen" @click="setAboutOpen(true)">
+            <button
+              type="button"
+              class="brand"
+              :aria-label="isBoardRoute ? '关于小宇宙播客热榜' : '返回热榜首页'"
+              :aria-haspopup="isBoardRoute ? 'dialog' : null"
+              :aria-expanded="isBoardRoute ? aboutOpen : null"
+              @click="isBoardRoute ? setAboutOpen(true) : $router.push('/')"
+            >
               <div class="brand-mark">
                 <app-icon name="headphones" :size="18" />
               </div>
@@ -1137,16 +1144,6 @@ const AppRoot = {
             </button>
 
             <div class="header-actions">
-              <router-link
-                v-if="!isBoardRoute"
-                to="/"
-                class="icon-btn"
-                title="返回热榜首页"
-                aria-label="返回热榜首页"
-              >
-                <app-icon name="home" :size="16" />
-                <span class="header-btn-label">热榜</span>
-              </router-link>
               <button v-if="isBoardRoute" type="button" class="icon-btn mobile-search-toggle" aria-label="搜索榜单" :aria-expanded="searchOpen || !!searchQuery" @click="searchOpen = !searchOpen; searchOpen && $nextTick(() => $refs.searchInput.focus())"><app-icon name="search" :size="17" /></button>
               <button
                 v-if="deferredInstallPrompt"
