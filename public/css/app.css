@@ -1304,7 +1304,8 @@ img {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 4px 12px;
+  /* Grow the four gaps with the space left over after the values. */
+  gap: 4px clamp(12px, (100% - 280px) / 4, 18px);
   margin-top: 12px;
   padding-top: 10px;
   border-top: 1px solid var(--border);
@@ -2790,7 +2791,7 @@ button.queue-info {
   }
 
   .episode-meta {
-    column-gap: 6px;
+    column-gap: clamp(6px, (100% - 269px) / 4, 9px);
     font-size: 11.5px;
   }
 }
@@ -2811,7 +2812,7 @@ button.queue-info {
   }
 
   .episode-meta {
-    column-gap: 5px;
+    column-gap: clamp(5px, (100% - 240px) / 4, 7.5px);
     font-size: 11px;
   }
 
