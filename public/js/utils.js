@@ -321,14 +321,15 @@ export const scrollKeeperMixin = {
   },
   activated() {
     this.isKeepAliveActive = true;
-    const targetY = this.savedScrollY || 0;
     if (typeof this.onKeepAliveActivated === "function") {
-      const handled = this.onKeepAliveActivated(targetY);
+      const handled = this.onKeepAliveActivated(this.savedScrollY || 0);
       if (handled) return;
     }
     if (typeof window !== "undefined") {
       this.$nextTick(() => {
         requestAnimationFrame(() => {
+          if (!this.isKeepAliveActive) return;
+          const targetY = this.savedScrollY || 0;
           window.scrollTo(0, targetY);
           this.attachScrollKeeper();
           if (typeof this.onAfterScrollRestore === "function") {

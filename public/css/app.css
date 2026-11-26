@@ -391,6 +391,8 @@ img {
 
 .board-tab {
   flex: 0 0 auto;
+  touch-action: manipulation;
+  user-select: none;
   padding: 7px 12px;
   border-radius: 9px;
   font-size: 13px;

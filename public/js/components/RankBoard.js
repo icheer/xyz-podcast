@@ -44,6 +44,7 @@ export default {
   props: {
     searchQuery: { type: String, default: "" },
     boardMeta: { type: Object, default: () => ({}) },
+    refreshVersion: { type: Number, default: 0 },
     // The published list is older than the daily sync that should have replaced it.
     dataStale: { type: Boolean, default: false },
   },
@@ -124,15 +125,14 @@ export default {
   watch: {
     searchQuery() {
       if (!this.isKeepAliveActive) return;
-      if (this.searchTimer) clearTimeout(this.searchTimer);
-      this.searchTimer = setTimeout(() => {
-        this.lastFetchedQuery = this.searchQuery;
-        this.resetAndFetch();
-      }, 380);
+      clearTimeout(this.searchTimer);
+      this.searchTimer = setTimeout(() => this.resetAndFetch(), 380);
+    },
+    refreshVersion() {
+      this.resetAndFetch({ reload: true });
     },
   },
   mounted() {
-    this.lastFetchedQuery = this.searchQuery;
     this.attachVirtualListeners();
     this.resetAndFetch();
     this.setupObserver();
@@ -148,8 +148,6 @@ export default {
       this.attachVirtualListeners();
       this.setupObserver();
       if (this.searchQuery !== this.lastFetchedQuery) {
-        this.savedScrollY = 0;
-        this.lastFetchedQuery = this.searchQuery;
         window.scrollTo(0, 0);
         this.resetAndFetch();
         this.attachScrollKeeper();
@@ -162,6 +160,8 @@ export default {
     },
     onKeepAliveDeactivated() {
       this.detachVirtualListeners();
+      clearTimeout(this.searchTimer);
+      this.searchTimer = null;
       if (this.observer) {
         this.observer.disconnect();
         this.observer = null;
@@ -330,8 +330,11 @@ export default {
         }
       });
     },
-    resetAndFetch() {
-      if (typeof window !== "undefined" && this.fetched) {
+    resetAndFetch({ reload = false } = {}) {
+      clearTimeout(this.searchTimer);
+      this.searchTimer = null;
+      this.lastFetchedQuery = this.searchQuery;
+      if (typeof window !== "undefined" && (this.fetched || reload)) {
         window.scrollTo(0, 0);
       }
       this.savedScrollY = 0;
@@ -349,22 +352,23 @@ export default {
       this.fetched = false;
       this.loading = false;
       this.errorMsg = "";
-      this.fetchNextPage();
+      return this.fetchNextPage({ reload });
     },
-    async fetchNextPage() {
+    async fetchNextPage({ reload = false } = {}) {
       if (this.loading || this.noMore) return;
       this.loading = true;
       this.errorMsg = "";
       const gen = this.fetchGen;
       try {
-        const res = await fetchBoard(this.boardKey, {
+        const params = {
           offset: this.offset,
           limit: this.limit,
           q: this.searchQuery.trim(),
           genre: this.selectedGenre,
           sort: this.sortField,
           dir: this.sortDir,
-        });
+        };
+        const res = await fetchBoard(this.boardKey, params, reload ? { cache: "reload" } : undefined);
         if (gen !== this.fetchGen) return;
         const batch = Array.isArray(res.items) ? res.items : [];
         this.items = [...this.items, ...batch];
@@ -414,7 +418,7 @@ export default {
       if (!el || typeof IntersectionObserver === "undefined") return;
       this.observer = new IntersectionObserver(
         (entries) => {
-          if (entries[0]?.isIntersecting && !this.loading && !this.noMore && this.fetched) {
+          if (entries[0]?.isIntersecting && this.isKeepAliveActive && !this.loading && !this.noMore && this.fetched) {
             this.fetchNextPage();
           }
         },
@@ -535,7 +539,7 @@ export default {
 
       <div v-else-if="errorMsg && items.length === 0" class="state-box error">
         <p>{{ errorMsg }}</p>
-        <button type="button" class="btn sm" style="margin-top: 10px" @click="resetAndFetch">重试</button>
+        <button type="button" class="btn sm" style="margin-top: 10px" @click="resetAndFetch()">重试</button>
       </div>
 
       <div v-else-if="fetched && items.length === 0" class="state-box">
@@ -847,7 +851,7 @@ export default {
 
       <div ref="sentinel" class="load-more-wrap">
         <div v-if="loading" style="color: var(--text-muted); padding: 12px;">正在加载更多...</div>
-        <button v-else-if="!noMore && items.length > 0" type="button" class="btn sm" @click="fetchNextPage">
+        <button v-else-if="!noMore && items.length > 0" type="button" class="btn sm" @click="fetchNextPage()">
           加载更多
         </button>
         <div v-else-if="fetched && items.length > 0" style="color: var(--text-muted); font-size: 12px; padding: 8px;">

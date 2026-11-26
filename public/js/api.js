@@ -13,8 +13,8 @@ function setBoundedCache(cache, key, value) {
   }
 }
 
-async function requestJson(url) {
-  const res = await fetch(url);
+async function requestJson(url, options) {
+  const res = await fetch(url, options);
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     throw new Error(data.error || `请求失败 (${res.status})`);
@@ -26,7 +26,7 @@ export function fetchBoardsMeta() {
   return requestJson("/api/boards/meta");
 }
 
-export function fetchBoard(board, params = {}) {
+export function fetchBoard(board, params = {}, options) {
   const search = new URLSearchParams();
   if (params.offset !== undefined) search.set("offset", String(params.offset));
   if (params.limit !== undefined) search.set("limit", String(params.limit));
@@ -34,7 +34,7 @@ export function fetchBoard(board, params = {}) {
   if (params.genre && params.genre !== "all") search.set("genre", params.genre);
   if (params.sort) search.set("sort", params.sort);
   if (params.dir) search.set("dir", params.dir);
-  return requestJson(`/api/boards/${encodeURIComponent(board)}?${search.toString()}`);
+  return requestJson(`/api/boards/${encodeURIComponent(board)}?${search.toString()}`, options);
 }
 
 async function fetchXiaoYuZhouDirect(url, timeoutMs = 12000) {

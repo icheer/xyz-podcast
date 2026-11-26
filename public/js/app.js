@@ -130,6 +130,7 @@ const AppRoot = {
       aboutOpen: false,
       libraryOpen: false,
       boardMeta: {},
+      boardRefreshVersions: {},
       clockMs: Date.now(),
       theme: prefs.theme,
       deferredInstallPrompt: null,
@@ -449,8 +450,23 @@ const AppRoot = {
       }
       window.removeEventListener("resize", this.syncHeaderHeight);
     },
-    onNavClick(path) {
-      if (this.$route.path === path) {
+    onBoardTabClick(tab, event) {
+      if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+        this._lastBoardTabClick = null;
+        return;
+      }
+
+      const previous = this._lastBoardTabClick;
+      const now = performance.now();
+      if (event.detail && previous?.board === tab.board && now - previous.time <= 400) {
+        this._lastBoardTabClick = null;
+        const versions = this.boardRefreshVersions;
+        versions[tab.board] = (versions[tab.board] || 0) + 1;
+        return;
+      }
+
+      this._lastBoardTabClick = event.detail ? { board: tab.board, time: now } : null;
+      if (this.$route.path === tab.path) {
         window.scrollTo({ top: 0, behavior: "smooth" });
       }
     },
@@ -1200,7 +1216,8 @@ const AppRoot = {
                 replace
                 class="board-tab"
                 :class="{ active: $route.path === tab.path }"
-                @click="onNavClick(tab.path)"
+                title="双击刷新榜单"
+                @click="onBoardTabClick(tab, $event)"
               >{{ tab.label }}</router-link>
             </nav>
 
@@ -1238,6 +1255,7 @@ const AppRoot = {
                 :search-query="searchQuery"
                 :board-meta="boardMeta"
                 :data-stale="boardDataStale"
+                :refresh-version="boardRefreshVersions[route.meta.board]"
               />
             </keep-alive></transition>
           </router-view>

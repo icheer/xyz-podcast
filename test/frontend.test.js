@@ -221,6 +221,53 @@ test("storage progress enforces 200-entry eviction and resume thresholds", () =>
   assert.equal(resolveResumeSeconds({ currentTime: 120, duration: 600, finished: false }, 600), 120);
 });
 
+test("reloading a board requests page one and ignores an older pagination response", async (t) => {
+  const requests = [];
+  let resolveOldPage;
+  t.mock.method(globalThis, "fetch", (url, options) => {
+    requests.push({ url, cache: options?.cache });
+    if (requests.length === 1) {
+      return new Promise((resolve) => { resolveOldPage = resolve; });
+    }
+    return Promise.resolve(Response.json({ items: [{ eid: "fresh" }], total: 80 }));
+  });
+  const board = {
+    ...RankBoard.data(),
+    ...RankBoard.methods,
+    boardKey: "episodes",
+    searchQuery: " test ",
+    selectedGenre: "Tech",
+    sortField: "playCount",
+    sortDir: "desc",
+    items: [{ eid: "previous" }],
+    total: 100,
+    offset: 80,
+    fetched: true,
+    savedScrollY: 600,
+    $nextTick() {},
+  };
+
+  const oldPage = board.fetchNextPage();
+  const refresh = board.resetAndFetch({ reload: true });
+  assert.deepEqual(board.items, []);
+  assert.equal(board.offset, 0);
+  assert.equal(board.savedScrollY, 0);
+  assert.equal(board.loading, true);
+
+  await refresh;
+  resolveOldPage(Response.json({ items: [{ eid: "stale" }], total: 100 }));
+  await oldPage;
+
+  assert.deepEqual(requests, [
+    { url: "/api/boards/episodes?offset=80&limit=40&q=test&genre=Tech&sort=playCount&dir=desc", cache: undefined },
+    { url: "/api/boards/episodes?offset=0&limit=40&q=test&genre=Tech&sort=playCount&dir=desc", cache: "reload" },
+  ]);
+  assert.deepEqual(board.items, [{ eid: "fresh" }]);
+  assert.equal(board.offset, 1);
+  assert.equal(board.total, 80);
+  assert.equal(board.loading, false);
+});
+
 test("computeVirtualWindow slices large lists cleanly with custom height caches", () => {
   assert.deepEqual(computeVirtualWindow({ count: 0, scrollRelTop: 100, viewportHeight: 800 }), {
     startIndex: 0,
